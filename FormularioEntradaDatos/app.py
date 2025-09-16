@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from supabase import create_client
+import os
 
 # -----------------------
 # CONFIGURACIÓN SUPABASE
@@ -37,6 +38,9 @@ def get_logged_email():
 def can_edit():
     email = get_logged_email()
     return email in ALLOWED_EDITORS if email else False
+
+# Ruta base del script (para cargar imágenes)
+BASE_DIR = os.path.dirname(__file__)
 
 # -----------------------
 # SIDEBAR: LOGIN
@@ -136,9 +140,9 @@ with tab1:
     st.markdown("#### 📷 Ejemplos (formulario)")
     c1, c2 = st.columns(2)
     with c1:
-        st.image("Captura.PNG", caption="Formulario (ejemplo)", use_container_width=True)
+        st.image(os.path.join(BASE_DIR, "Captura.PNG"), caption="Formulario (ejemplo)", use_container_width=True)
     with c2:
-        st.image("aceptado.PNG", caption="Cliente aceptado (ejemplo)", use_container_width=True)
+        st.image(os.path.join(BASE_DIR, "aceptado.PNG"), caption="Cliente aceptado (ejemplo)", use_container_width=True)
 
     st.markdown("#### 📑 Tabla en vivo")
     draw_readonly_table()
@@ -166,9 +170,9 @@ with tab2:
     st.markdown("#### 📷 Ejemplos (CSV)")
     c3, c4 = st.columns(2)
     with c3:
-        st.image("ejemplo.PNG", caption="Formulario ejemplo", use_container_width=True)
+        st.image(os.path.join(BASE_DIR, "ejemplo.PNG"), caption="Formulario ejemplo", use_container_width=True)
     with c4:
-        st.image("1decsv.PNG", caption="Ejemplo CSV", use_container_width=True)
+        st.image(os.path.join(BASE_DIR, "1decsv.PNG"), caption="Ejemplo CSV", use_container_width=True)
 
     st.markdown("#### 📑 Tabla en vivo")
     draw_readonly_table()
@@ -188,7 +192,7 @@ with tab3:
         if not can_edit():
             st.warning("Solo lectura. Inicia sesión con un usuario autorizado para ✏️/🗑️.")
         
-        # Mostrar encabezados manuales (con columnas para iconos a la izquierda)
+        # Mostrar encabezados manuales
         header_cols = st.columns([0.6, 0.6, 1.8, 1.8, 1.8, 1.2, 1.2, 1.2, 1.2])
         header_cols[0].markdown("**✏️**")
         header_cols[1].markdown("**🗑️**")
@@ -214,7 +218,7 @@ with tab3:
                 else:
                     st.write("-")
 
-            # 🗑️ BORRAR (con confirmación global)
+            # 🗑️ BORRAR
             with cols[1]:
                 if can_edit():
                     if st.button("🗑️", key=f"del_{cliente_id}"):
@@ -232,7 +236,7 @@ with tab3:
             cols[7].write(row.get("provincia", ""))
             cols[8].write(cliente_id)
 
-        # FORMULARIO DE EDICIÓN (debajo de la tabla, cuando se pulsa ✏️)
+        # FORMULARIO DE EDICIÓN
         if st.session_state["editing_id"] is not None:
             eid = st.session_state["editing_id"]
             st.markdown("---")
@@ -265,7 +269,7 @@ with tab3:
                             st.session_state["editing_id"] = None
                             st.rerun()
 
-        # CONFIRMACIÓN DE BORRADO (global, bajo la tabla)
+        # CONFIRMACIÓN DE BORRADO
         if st.session_state["pending_delete"] is not None:
             did = st.session_state["pending_delete"]
             st.markdown("---")
