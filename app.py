@@ -136,9 +136,9 @@ with tab1:
     st.markdown("#### 📷 Ejemplos (formulario)")
     c1, c2 = st.columns(2)
     with c1:
-        st.image("captura.png", caption="Formulario (ejemplo)", use_container_width=True)
+        st.image("Captura.PNG", caption="Formulario (ejemplo)", use_container_width=True)
     with c2:
-        st.image("aceptado.png", caption="Cliente aceptado (ejemplo)", use_container_width=True)
+        st.image("aceptado.PNG", caption="Cliente aceptado (ejemplo)", use_container_width=True)
 
     st.markdown("#### 📑 Tabla en vivo")
     draw_readonly_table()
@@ -166,9 +166,9 @@ with tab2:
     st.markdown("#### 📷 Ejemplos (CSV)")
     c3, c4 = st.columns(2)
     with c3:
-        st.image("ejemplo.png", caption="Formulario ejemplo", use_container_width=True)
+        st.image("ejemplo.PNG", caption="Formulario ejemplo", use_container_width=True)
     with c4:
-        st.image("1decsv.png", caption="Ejemplo CSV", use_container_width=True)
+        st.image("1decsv.PNG", caption="Ejemplo CSV", use_container_width=True)
 
     st.markdown("#### 📑 Tabla en vivo")
     draw_readonly_table()
