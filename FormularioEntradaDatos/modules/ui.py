@@ -408,7 +408,7 @@ def fetch_options(supabase, table, id_field, label_field):
         st.error(f"⚠️ Error cargando opciones de {table}: {e}")
         return [], {}
 
-def render_header(title: str, description: str = "", logo="logo_orbe_sinfondo-1536x479.png"):
+def render_header(title: str, description: str = "", logo="FormularioEntradaDatos/images/logo_orbe.png"):
     col1, col2 = st.columns([4, 1])
     with col1:
         st.title(title)
