@@ -1,8 +1,7 @@
+# modules/producto.py
 import streamlit as st
 import pandas as pd
-from .ui import (
-    draw_live_df, can_edit, render_header, draw_feed_generic
-)
+from .ui import draw_live_df, can_edit, render_header, draw_feed_generic
 
 TABLE = "producto"
 FIELDS_LIST = [
@@ -25,7 +24,7 @@ def render_producto(supabase):
     with tab1:
         st.subheader("Añadir Producto")
         with st.form("form_producto"):
-            sku     = st.text_input("SKU *", max_chars=50)
+            sku = st.text_input("SKU *", max_chars=50)
 
             # ISBN y EAN
             col1, col2 = st.columns(2)
@@ -34,7 +33,7 @@ def render_producto(supabase):
             with col2:
                 ean = st.text_input("EAN13", max_chars=13)
 
-            titulo  = st.text_input("Título *", max_chars=250)
+            titulo = st.text_input("Título *", max_chars=250)
 
             # Autor y Colección
             col3, col4 = st.columns(2)
@@ -92,13 +91,8 @@ def render_producto(supabase):
             st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
 
             header = st.columns([0.5,0.5,1.5,3,2,1,1])
-            header[0].markdown("**✏️**")
-            header[1].markdown("**🗑️**")
-            header[2].markdown("**SKU**")
-            header[3].markdown("**Título**")
-            header[4].markdown("**Autor**")
-            header[5].markdown("**Stock**")
-            header[6].markdown("**ID**")
+            for col, txt in zip(header, ["✏️","🗑️","SKU","Título","Autor","Stock","ID"]):
+                col.markdown(f"**{txt}**")
 
             for _, row in df.iterrows():
                 pid = int(row["productoid"])
