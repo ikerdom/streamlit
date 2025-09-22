@@ -156,3 +156,37 @@ def render_crm_actuacion(supabase):
                         st.success("✅ Actuación actualizada")
                         st.session_state[EDIT_KEY] = None
                         st.rerun()
+    # =========================
+    # TAB 2 - CSV
+    # =========================
+    with tab2:
+        st.subheader("Importar desde CSV")
+        st.caption("Columnas: clienteid,trabajadorid,fecha,canal,descripcion,estado")
+        up = st.file_uploader("Selecciona CSV", type=["csv"], key="csv_crm")
+        if up:
+            df_csv = pd.read_csv(up)
+            st.dataframe(df_csv, use_container_width=True)
+            if st.button("➕ Insertar todos", key="btn_csv_crm"):
+                supabase.table(TABLE).insert(df_csv.to_dict(orient="records")).execute()
+                st.success(f"✅ Insertados {len(df_csv)}")
+                st.rerun()
+
+    # =========================
+    # TAB 3 - Instrucciones
+    # =========================
+    with tab3:
+        st.subheader("📑 Campos de Actuaciones CRM")
+        st.markdown("""
+        - **clienteid / trabajadorid** → referencia a la entidad asociada.  
+        - **fecha** → fecha de la actuación (YYYY-MM-DD).  
+        - **canal** → medio de comunicación (teléfono, email, visita, otro).  
+        - **descripcion** → detalle de la interacción.  
+        - **estado** → estado de la actuación (pendiente, en curso, cerrado).  
+        """)
+        st.subheader("📖 Ejemplo CSV")
+        st.code(
+            "clienteid,trabajadorid,fecha,canal,descripcion,estado\n"
+            "1,,2025-09-22,Teléfono,Llamada de seguimiento,pendiente\n"
+            ",2,2025-09-21,Email,Revisión de contrato,cerrado",
+            language="csv"
+        )

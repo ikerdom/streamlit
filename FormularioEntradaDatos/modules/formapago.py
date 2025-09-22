@@ -12,9 +12,11 @@ DEL_KEY  = "pending_delete_formapago"
 def render_forma_pago(supabase):
     # ✅ Cabecera corporativa
     render_header(
-        "💳 Catálogo: Formas de Pago",
+        "💳 Formas de Pago",
         "Define los métodos de pago disponibles para los pedidos (ej. transferencia, tarjeta, etc.)."
     )
+
+
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📖 Instrucciones"])
 

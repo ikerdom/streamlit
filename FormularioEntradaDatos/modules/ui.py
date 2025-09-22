@@ -174,7 +174,7 @@ def menu_sidebar():
     if st.sidebar.button("👥 Grupo", key="menu_grupo", use_container_width=True):
         st.session_state["module_key"] = "grupo"
 
-    # Clientes (con submenú)
+    # Clientes
     if st.sidebar.button("👤 Clientes", key="menu_cliente", use_container_width=True):
         st.session_state["module_key"] = "cliente"
 
@@ -272,8 +272,12 @@ def menu_sidebar():
             st.session_state["module_key"] = mapping[sub]
 
     # Configuración
-    if st.sidebar.button("⚙️ Configuración", key="menu_config", use_container_width=True):
+        # Configuración
+       # Formas de Pago
+    if st.sidebar.button("💳 Formas de Pago", key="menu_formapago", use_container_width=True):
         st.session_state["module_key"] = "formapago"
+
+
 
     # CRM
     if st.sidebar.button("📞 CRM", key="menu_crm", use_container_width=True):
