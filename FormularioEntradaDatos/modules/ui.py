@@ -408,6 +408,16 @@ def fetch_options(supabase, table, id_field, label_field):
         st.error(f"⚠️ Error cargando opciones de {table}: {e}")
         return [], {}
 
+def render_header(title: str, description: str = "", logo="logo_orbe_sinfondo-1536x479.png"):
+    col1, col2 = st.columns([4, 1])
+    with col1:
+        st.title(title)
+        if description:
+            st.caption(description)
+    with col2:
+        safe_image(logo, width=160)   # ya en base64, no rompe en Cloud
+    st.markdown("---")
+
 # -----------------------------
 # Imágenes / Instrucciones
 # -----------------------------

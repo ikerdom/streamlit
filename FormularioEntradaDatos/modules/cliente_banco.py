@@ -1,5 +1,6 @@
 import streamlit as st
-from .ui import safe_image
+from .ui import render_header
+
 
 import pandas as pd
 from .ui import (
@@ -12,12 +13,12 @@ FIELDS_LIST = ["clientebancoid","clienteid","iban","bic","titular","banco","pred
 
 def render_cliente_banco(supabase):
     # Cabecera con logo
-    col1, col2 = st.columns([4,1])
-    with col1:
-        section_header("🏦 Bancos Cliente",
-                       "Gestión de cuentas bancarias asociadas a cada cliente.")
-    with col2:
-        safe_image("logo_orbe_sinfondo-1536x479.png")
+
+    render_header(
+        "🏦 Bancos Cliente",
+                       "Gestión de cuentas bancarias asociadas a cada cliente."
+    )
+
 
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])

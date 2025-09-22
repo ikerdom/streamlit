@@ -5,6 +5,8 @@ from .ui import (
     fetch_options
 )
 from .ui import safe_image
+from .ui import render_header
+
 
 TABLE = "clientecondiciones"
 FIELDS_LIST = [
@@ -37,13 +39,13 @@ def safe_float(val, default=0.0):
 
 def render_cliente_condiciones(supabase):
     # Cabecera con logo
-    col1, col2 = st.columns([4,1])
-    with col1:
-        section_header("⚙️ Condiciones de Cliente", "Condiciones comerciales aplicadas a clientes.")
-    with col2:
 
-        safe_image("logo_orbe_sinfondo-1536x479.png")
+    render_header(
+        "⚙️ Condiciones de Cliente", "Condiciones comerciales aplicadas a clientes."
+    )
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
+
+
 
     # ---------------------------
     # TAB 1: Formulario + tabla
