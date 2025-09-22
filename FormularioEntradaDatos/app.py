@@ -1,10 +1,14 @@
 import streamlit as st
 from modules.supa import get_client
+
+
 from modules.ui import (
-    set_page_config, ensure_session_keys,
-    login_sidebar, menu_sidebar, render_global_feed,
+    set_page_config, ensure_session_keys, login_sidebar,
+    menu_sidebar, render_header, render_global_feed,
+    draw_live_df, can_edit, fetch_options, safe_image,
     apply_custom_css
 )
+
 
 # Importa tus módulos
 from modules.inicio import render_inicio
