@@ -33,8 +33,8 @@ def render_inicio(supabase):
         - 📌 **Estado Pedido**: fases y seguimiento del pedido.
     - 💬 **CRM Actuaciones** → registro de interacciones con **clientes** y **trabajadores** 
       (llamadas, emails, visitas, incidencias).
-    
-    - 💳 **Formas de Pago**: métodos de pago admitidos.
+    - ⚙️ **Configuración**
+        - 💳 **Formas de Pago**: métodos de pago admitidos.
 
     ### ⚙️ Funcionalidades clave
     - Formularios de alta y edición de datos.
