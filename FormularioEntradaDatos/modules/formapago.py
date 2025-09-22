@@ -1,6 +1,7 @@
+# modules/formapago.py
 import streamlit as st
 import pandas as pd
-from .ui import render_header, can_edit
+from .ui import render_header, can_edit, draw_live_df
 
 TABLE = "formapago"
 FIELDS_LIST = ["formapagoid", "nombre"]
@@ -31,10 +32,7 @@ def render_forma_pago(supabase):
                     st.rerun()
 
         st.markdown("#### 📑 Formas de Pago actuales con acciones")
-        df = pd.DataFrame(
-            supabase.table(TABLE).select("*").execute().data,
-            columns=FIELDS_LIST
-        )
+        df = draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
 
         if not df.empty:
             st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
@@ -47,14 +45,26 @@ def render_forma_pago(supabase):
                 fid = int(row["formapagoid"])
                 cols = st.columns([0.5,0.5,3])
 
-                cols[2].write(row.get("nombre",""))
-
+                # Editar
                 with cols[0]:
-                    if can_edit() and st.button("✏️", key=f"edit_pago_{fid}"):
-                        st.session_state[EDIT_KEY] = fid; st.rerun()
+                    if can_edit():
+                        if st.button("✏️", key=f"edit_pago_{fid}"):
+                            st.session_state[EDIT_KEY] = fid
+                            st.rerun()
+                    else:
+                        st.button("✏️", key=f"edit_pago_{fid}", disabled=True)
+
+                # Borrar
                 with cols[1]:
-                    if can_edit() and st.button("🗑️", key=f"del_pago_{fid}"):
-                        st.session_state[DEL_KEY] = fid; st.rerun()
+                    if can_edit():
+                        if st.button("🗑️", key=f"del_pago_{fid}"):
+                            st.session_state[DEL_KEY] = fid
+                            st.rerun()
+                    else:
+                        st.button("🗑️", key=f"del_pago_{fid}", disabled=True)
+
+                # Nombre
+                cols[2].write(row.get("nombre",""))
 
             # Confirmar borrado
             if st.session_state.get(DEL_KEY):
@@ -66,27 +76,32 @@ def render_forma_pago(supabase):
                     if st.button("✅ Confirmar", key="pago_confirm_del"):
                         supabase.table(TABLE).delete().eq("formapagoid", did).execute()
                         st.success("✅ Forma de pago eliminada")
-                        st.session_state[DEL_KEY] = None; st.rerun()
+                        st.session_state[DEL_KEY] = None
+                        st.rerun()
                 with c2:
                     if st.button("❌ Cancelar", key="pago_cancel_del"):
-                        st.session_state[DEL_KEY] = None; st.rerun()
+                        st.session_state[DEL_KEY] = None
+                        st.rerun()
 
             # Edición inline
             if st.session_state.get(EDIT_KEY):
                 eid = st.session_state[EDIT_KEY]
                 cur = df[df["formapagoid"]==eid].iloc[0].to_dict()
-                st.markdown("---"); st.subheader(f"Editar Forma de Pago #{eid}")
+                st.markdown("---")
+                st.subheader(f"Editar Forma de Pago #{eid}")
                 with st.form("edit_formapago"):
                     nombre = st.text_input("Nombre", cur.get("nombre",""))
                     if st.form_submit_button("💾 Guardar"):
                         if can_edit():
                             supabase.table(TABLE).update({"nombre": nombre}).eq("formapagoid", eid).execute()
                             st.success("✅ Forma de pago actualizada")
-                            st.session_state[EDIT_KEY] = None; st.rerun()
+                            st.session_state[EDIT_KEY] = None
+                            st.rerun()
                         else:
                             st.error("⚠️ Inicia sesión para editar registros.")
                 if st.button("❌ Cancelar", key="pago_cancel_edit"):
-                    st.session_state[EDIT_KEY] = None; st.rerun()
+                    st.session_state[EDIT_KEY] = None
+                    st.rerun()
 
     # --- TAB 2: CSV
     with tab2:

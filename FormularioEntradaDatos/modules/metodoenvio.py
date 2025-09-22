@@ -49,17 +49,27 @@ def render_metodo_envio(supabase):
                 mid = int(row["metodoenvioid"])
                 cols = st.columns([0.5,0.5,2,3])
 
-                cols[2].write(row.get("nombre",""))
-                cols[3].write(row.get("descripcion",""))
-
                 # Editar
                 with cols[0]:
-                    if can_edit() and st.button("✏️", key=f"edit_metodo_{mid}"):
-                        st.session_state[EDIT_KEY] = mid; st.rerun()
+                    if can_edit():
+                        if st.button("✏️", key=f"edit_metodo_{mid}"):
+                            st.session_state[EDIT_KEY] = mid
+                            st.rerun()
+                    else:
+                        st.button("✏️", key=f"edit_metodo_{mid}", disabled=True)
+
                 # Borrar
                 with cols[1]:
-                    if can_edit() and st.button("🗑️", key=f"del_metodo_{mid}"):
-                        st.session_state[DEL_KEY] = mid; st.rerun()
+                    if can_edit():
+                        if st.button("🗑️", key=f"del_metodo_{mid}"):
+                            st.session_state[DEL_KEY] = mid
+                            st.rerun()
+                    else:
+                        st.button("🗑️", key=f"del_metodo_{mid}", disabled=True)
+
+                # Datos
+                cols[2].write(row.get("nombre",""))
+                cols[3].write(row.get("descripcion",""))
 
             # Confirmar borrado
             if st.session_state.get(DEL_KEY):
@@ -71,16 +81,19 @@ def render_metodo_envio(supabase):
                     if st.button("✅ Confirmar", key="metodo_confirm_del"):
                         supabase.table(TABLE).delete().eq("metodoenvioid", did).execute()
                         st.success("✅ Método eliminado")
-                        st.session_state[DEL_KEY] = None; st.rerun()
+                        st.session_state[DEL_KEY] = None
+                        st.rerun()
                 with c2:
                     if st.button("❌ Cancelar", key="metodo_cancel_del"):
-                        st.session_state[DEL_KEY] = None; st.rerun()
+                        st.session_state[DEL_KEY] = None
+                        st.rerun()
 
             # Edición inline
             if st.session_state.get(EDIT_KEY):
                 eid = st.session_state[EDIT_KEY]
                 cur = df[df["metodoenvioid"]==eid].iloc[0].to_dict()
-                st.markdown("---"); st.subheader(f"Editar Método #{eid}")
+                st.markdown("---")
+                st.subheader(f"Editar Método #{eid}")
                 with st.form("edit_metodo"):
                     nombre = st.text_input("Nombre", cur.get("nombre",""))
                     descripcion = st.text_area("Descripción", cur.get("descripcion",""))
@@ -91,11 +104,13 @@ def render_metodo_envio(supabase):
                                 "descripcion": descripcion
                             }).eq("metodoenvioid", eid).execute()
                             st.success("✅ Método actualizado")
-                            st.session_state[EDIT_KEY] = None; st.rerun()
+                            st.session_state[EDIT_KEY] = None
+                            st.rerun()
                         else:
                             st.error("⚠️ Inicia sesión para editar registros.")
                 if st.button("❌ Cancelar", key="metodo_cancel_edit"):
-                    st.session_state[EDIT_KEY] = None; st.rerun()
+                    st.session_state[EDIT_KEY] = None
+                    st.rerun()
 
     # --- TAB 2: CSV
     with tab2:
@@ -107,7 +122,8 @@ def render_metodo_envio(supabase):
             st.dataframe(df_csv, use_container_width=True)
             if st.button("➕ Insertar todos", key="btn_csv_metodoenvio"):
                 supabase.table(TABLE).insert(df_csv.to_dict(orient="records")).execute()
-                st.success(f"✅ Insertados {len(df_csv)}"); st.rerun()
+                st.success(f"✅ Insertados {len(df_csv)}")
+                st.rerun()
 
     # --- TAB 3: Instrucciones
     with tab3:

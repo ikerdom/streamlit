@@ -1,3 +1,4 @@
+# modules/trabajador.py
 import streamlit as st
 import pandas as pd
 from .ui import (
@@ -27,7 +28,6 @@ def render_trabajador(supabase):
         trabajadores = supabase.table(TABLE).select("trabajadorid,codigoempleado,nombre").execute().data or []
         opciones = [f"{t['codigoempleado']} - {t['nombre']}" for t in trabajadores]
 
-        # 👉 Primero EXISTENTE, luego NUEVO (igual que en Grupo)
         modo = st.radio("¿Qué deseas hacer?", ["👤 Seleccionar existente", "➕ Nuevo trabajador"])
 
         with st.form("form_trabajador"):
@@ -73,15 +73,21 @@ def render_trabajador(supabase):
 
                 # Editar
                 with cols[0]:
-                    if can_edit() and st.button("✏️", key=f"tra_edit_{tid}"):
-                        st.session_state["editing"] = tid
-                        st.rerun()
+                    if can_edit():
+                        if st.button("✏️", key=f"tra_edit_{tid}"):
+                            st.session_state["editing"] = tid
+                            st.rerun()
+                    else:
+                        st.button("✏️", key=f"tra_edit_{tid}", disabled=True)
 
                 # Borrar
                 with cols[1]:
-                    if can_edit() and st.button("🗑️", key=f"tra_delask_{tid}"):
-                        st.session_state["pending_delete"] = tid
-                        st.rerun()
+                    if can_edit():
+                        if st.button("🗑️", key=f"tra_delask_{tid}"):
+                            st.session_state["pending_delete"] = tid
+                            st.rerun()
+                    else:
+                        st.button("🗑️", key=f"tra_delask_{tid}", disabled=True)
 
                 cols[2].write(row.get("codigoempleado",""))
                 cols[3].write(row.get("nombre",""))

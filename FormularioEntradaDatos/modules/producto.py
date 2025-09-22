@@ -100,15 +100,21 @@ def render_producto(supabase):
 
                 # Editar
                 with cols[0]:
-                    if can_edit() and st.button("✏️", key=f"pro_edit_{pid}"):
-                        st.session_state["editing"] = pid
-                        st.rerun()
+                    if can_edit():
+                        if st.button("✏️", key=f"pro_edit_{pid}"):
+                            st.session_state["editing"] = pid
+                            st.rerun()
+                    else:
+                        st.button("✏️", key=f"pro_edit_{pid}", disabled=True)
 
                 # Borrar
                 with cols[1]:
-                    if can_edit() and st.button("🗑️", key=f"pro_delask_{pid}"):
-                        st.session_state["pending_delete"] = pid
-                        st.rerun()
+                    if can_edit():
+                        if st.button("🗑️", key=f"pro_delask_{pid}"):
+                            st.session_state["pending_delete"] = pid
+                            st.rerun()
+                    else:
+                        st.button("🗑️", key=f"pro_delask_{pid}", disabled=True)
 
                 cols[2].write(row.get("sku",""))
                 cols[3].write(row.get("titulo",""))
