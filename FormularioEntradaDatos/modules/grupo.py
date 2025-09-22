@@ -1,20 +1,16 @@
 import streamlit as st
 import pandas as pd
-from .ui import (
-    section_header, draw_live_df, can_edit, fetch_options
-)
-from .ui import safe_image
+from .ui import render_header, draw_live_df, can_edit, fetch_options
 
 TABLE = "grupo"
 FIELDS_LIST = ["grupoid","nombre","cif","notas","fechaalta"]
 
 def render_grupo(supabase):
-    # Cabecera con logo a la derecha
-    col1, col2 = st.columns([4,1])
-    with col1:
-        section_header("📂 Gestión de Grupos", "Sección para organizar clientes por grupos empresariales.")
-    with col2:
-        safe_image("logo_orbe_sinfondo-1536x479.png")
+    # ✅ Cabecera corporativa
+    render_header(
+        "📂 Gestión de Grupos",
+        "Sección para organizar clientes por grupos empresariales."
+    )
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📑 Instrucciones"])
 
@@ -78,22 +74,17 @@ def render_grupo(supabase):
                 gid = int(row["grupoid"])
                 cols = st.columns([0.5,0.5,3,2,3,2])
 
-                # Editar
-                with cols[0]:
-                    if can_edit() and st.button("✏️", key=f"grupo_edit_{gid}"):
-                        st.session_state["editing_grupo"] = gid
-                        st.rerun()
-
-                # Borrar
-                with cols[1]:
-                    if can_edit() and st.button("🗑️", key=f"grupo_delask_{gid}"):
-                        st.session_state["pending_delete_grupo"] = gid
-                        st.rerun()
-
                 cols[2].write(row.get("nombre",""))
                 cols[3].write(row.get("cif",""))
                 cols[4].write(row.get("notas",""))
                 cols[5].write(str(row.get("fechaalta","")))
+
+                with cols[0]:
+                    if can_edit() and st.button("✏️", key=f"grupo_edit_{gid}"):
+                        st.session_state["editing_grupo"] = gid; st.rerun()
+                with cols[1]:
+                    if can_edit() and st.button("🗑️", key=f"grupo_delask_{gid}"):
+                        st.session_state["pending_delete_grupo"] = gid; st.rerun()
 
             # Confirmar borrado
             if st.session_state.get("pending_delete_grupo"):
@@ -105,19 +96,16 @@ def render_grupo(supabase):
                     if st.button("✅ Confirmar", key="grupo_confirm_del"):
                         supabase.table(TABLE).delete().eq("grupoid", did).execute()
                         st.success("✅ Grupo eliminado")
-                        st.session_state["pending_delete_grupo"] = None
-                        st.rerun()
+                        st.session_state["pending_delete_grupo"] = None; st.rerun()
                 with c2:
                     if st.button("❌ Cancelar", key="grupo_cancel_del"):
-                        st.session_state["pending_delete_grupo"] = None
-                        st.rerun()
+                        st.session_state["pending_delete_grupo"] = None; st.rerun()
 
             # Edición inline
             if st.session_state.get("editing_grupo"):
                 eid = st.session_state["editing_grupo"]
                 cur = df[df["grupoid"]==eid].iloc[0].to_dict()
-                st.markdown("---")
-                st.subheader(f"Editar Grupo #{eid}")
+                st.markdown("---"); st.subheader(f"Editar Grupo #{eid}")
                 with st.form("edit_grupo"):
                     nom = st.text_input("Nombre", cur.get("nombre",""))
                     ci  = st.text_input("CIF", cur.get("cif",""))
@@ -130,8 +118,7 @@ def render_grupo(supabase):
                                 "notas": no
                             }).eq("grupoid", eid).execute()
                             st.success("✅ Grupo actualizado")
-                            st.session_state["editing_grupo"] = None
-                            st.rerun()
+                            st.session_state["editing_grupo"] = None; st.rerun()
 
     # -------------------------------
     # TAB 2: CSV
@@ -145,8 +132,7 @@ def render_grupo(supabase):
             st.dataframe(df_csv, use_container_width=True)
             if st.button("➕ Insertar todos", key="btn_csv_grupo"):
                 supabase.table(TABLE).insert(df_csv.to_dict(orient="records")).execute()
-                st.success(f"✅ Insertados {len(df_csv)}")
-                st.rerun()
+                st.success(f"✅ Insertados {len(df_csv)}"); st.rerun()
         draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
 
     # -------------------------------

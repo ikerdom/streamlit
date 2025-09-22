@@ -1,8 +1,7 @@
 # modules/metodoenvio.py
 import streamlit as st
 import pandas as pd
-from .ui import section_header, draw_live_df, can_edit
-from .ui import safe_image
+from .ui import render_header, draw_live_df, can_edit
 
 TABLE = "metodoenvio"
 FIELDS_LIST = ["metodoenvioid", "nombre", "descripcion"]
@@ -11,14 +10,11 @@ EDIT_KEY = "editing_metodo"
 DEL_KEY  = "pending_delete_metodo"
 
 def render_metodo_envio(supabase):
-    # Cabecera con logo
-    col1, col2 = st.columns([4,1])
-    with col1:
-        section_header("📦 Catálogo: Métodos de Envío",
-                       "Define los métodos de envío disponibles (urgente, estándar, etc.).")
-    with col2:
-        
-        safe_image("logo_orbe_sinfondo-1536x479.png")
+    # ✅ Cabecera unificada
+    render_header(
+        "📦 Catálogo: Métodos de Envío",
+        "Define los métodos de envío disponibles (urgente, estándar, etc.)."
+    )
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📖 Instrucciones"])
 
@@ -45,7 +41,6 @@ def render_metodo_envio(supabase):
         if not df.empty:
             st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
 
-            # Cabecera
             header = st.columns([0.5,0.5,2,3])
             for col, txt in zip(header, ["✏️","🗑️","Nombre","Descripción"]):
                 col.markdown(f"**{txt}**")
@@ -54,26 +49,17 @@ def render_metodo_envio(supabase):
                 mid = int(row["metodoenvioid"])
                 cols = st.columns([0.5,0.5,2,3])
 
-                # Editar
-                with cols[0]:
-                    if can_edit():
-                        if st.button("✏️", key=f"edit_metodo_{mid}"):
-                            st.session_state[EDIT_KEY] = mid
-                            st.rerun()
-                    else:
-                        st.button("✏️", key=f"edit_metodo_{mid}", disabled=True)
-
-                # Borrar
-                with cols[1]:
-                    if can_edit():
-                        if st.button("🗑️", key=f"del_metodo_{mid}"):
-                            st.session_state[DEL_KEY] = mid
-                            st.rerun()
-                    else:
-                        st.button("🗑️", key=f"del_metodo_{mid}", disabled=True)
-
                 cols[2].write(row.get("nombre",""))
                 cols[3].write(row.get("descripcion",""))
+
+                # Editar
+                with cols[0]:
+                    if can_edit() and st.button("✏️", key=f"edit_metodo_{mid}"):
+                        st.session_state[EDIT_KEY] = mid; st.rerun()
+                # Borrar
+                with cols[1]:
+                    if can_edit() and st.button("🗑️", key=f"del_metodo_{mid}"):
+                        st.session_state[DEL_KEY] = mid; st.rerun()
 
             # Confirmar borrado
             if st.session_state.get(DEL_KEY):
@@ -85,19 +71,16 @@ def render_metodo_envio(supabase):
                     if st.button("✅ Confirmar", key="metodo_confirm_del"):
                         supabase.table(TABLE).delete().eq("metodoenvioid", did).execute()
                         st.success("✅ Método eliminado")
-                        st.session_state[DEL_KEY] = None
-                        st.rerun()
+                        st.session_state[DEL_KEY] = None; st.rerun()
                 with c2:
                     if st.button("❌ Cancelar", key="metodo_cancel_del"):
-                        st.session_state[DEL_KEY] = None
-                        st.rerun()
+                        st.session_state[DEL_KEY] = None; st.rerun()
 
             # Edición inline
             if st.session_state.get(EDIT_KEY):
                 eid = st.session_state[EDIT_KEY]
                 cur = df[df["metodoenvioid"]==eid].iloc[0].to_dict()
-                st.markdown("---")
-                st.subheader(f"Editar Método #{eid}")
+                st.markdown("---"); st.subheader(f"Editar Método #{eid}")
                 with st.form("edit_metodo"):
                     nombre = st.text_input("Nombre", cur.get("nombre",""))
                     descripcion = st.text_area("Descripción", cur.get("descripcion",""))
@@ -108,13 +91,11 @@ def render_metodo_envio(supabase):
                                 "descripcion": descripcion
                             }).eq("metodoenvioid", eid).execute()
                             st.success("✅ Método actualizado")
-                            st.session_state[EDIT_KEY] = None
-                            st.rerun()
+                            st.session_state[EDIT_KEY] = None; st.rerun()
                         else:
                             st.error("⚠️ Inicia sesión para editar registros.")
                 if st.button("❌ Cancelar", key="metodo_cancel_edit"):
-                    st.session_state[EDIT_KEY] = None
-                    st.rerun()
+                    st.session_state[EDIT_KEY] = None; st.rerun()
 
     # --- TAB 2: CSV
     with tab2:
@@ -126,8 +107,7 @@ def render_metodo_envio(supabase):
             st.dataframe(df_csv, use_container_width=True)
             if st.button("➕ Insertar todos", key="btn_csv_metodoenvio"):
                 supabase.table(TABLE).insert(df_csv.to_dict(orient="records")).execute()
-                st.success(f"✅ Insertados {len(df_csv)}")
-                st.rerun()
+                st.success(f"✅ Insertados {len(df_csv)}"); st.rerun()
 
     # --- TAB 3: Instrucciones
     with tab3:

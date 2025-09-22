@@ -2,10 +2,8 @@ import streamlit as st
 import pandas as pd
 from .ui import (
     draw_live_df, can_edit, section_header,
-    fetch_options
+    fetch_options, render_header
 )
-from .ui import safe_image
-
 
 TABLE = "pedidodetalle"
 FIELDS_LIST = [
@@ -15,24 +13,21 @@ FIELDS_LIST = [
 ]
 
 def render_pedido_detalle(supabase):
-    # Cabecera con logo
-    col1, col2 = st.columns([4,1])
-    with col1:
-        section_header("📦 Detalle de Pedido",
-                       "Gestión de líneas de detalle asociadas a cada pedido con importes calculados.")
-    with col2:
-        
-        safe_image("logo_orbe_sinfondo-1536x479.png")
+    # ✅ Cabecera unificada
+    render_header(
+        "📦 Detalle de Pedido",
+        "Gestión de líneas de detalle asociadas a cada pedido con importes calculados."
+    )
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
 
-    # --- Formulario
+    # --- TAB 1: Formulario
     with tab1:
         pedidos, map_pedidos = fetch_options(supabase, "pedido", "pedidoid", "numpedido")
         productos, map_productos = fetch_options(supabase, "producto", "productoid", "titulo")
 
         with st.form("form_pedidodetalle"):
-            pedido = st.selectbox("Pedido *", pedidos)
+            pedido   = st.selectbox("Pedido *", pedidos)
             producto = st.selectbox("Producto *", productos)
 
             c1, c2 = st.columns(2)
@@ -53,8 +48,8 @@ def render_pedido_detalle(supabase):
                 if not pedido or not producto:
                     st.error("❌ Pedido y Producto obligatorios")
                 else:
-                    base = cantidad * precio * (1 - descuento/100)
-                    iva = base * (tipoiva/100)
+                    base  = cantidad * precio * (1 - descuento/100)
+                    iva   = base * (tipoiva/100)
                     total = base + iva
                     nuevo = {
                         "pedidoid": map_pedidos.get(pedido),
@@ -77,12 +72,10 @@ def render_pedido_detalle(supabase):
 
         if not df.empty:
             # Mapear pedidoid → numpedido y productoid → titulo
-            pedidos_map = {p["pedidoid"]: p["numpedido"]
-                           for p in supabase.table("pedido").select("pedidoid,numpedido").execute().data}
-            productos_map = {p["productoid"]: p["titulo"]
-                             for p in supabase.table("producto").select("productoid,titulo").execute().data}
+            pedidos_map   = {p["pedidoid"]: p["numpedido"] for p in supabase.table("pedido").select("pedidoid,numpedido").execute().data}
+            productos_map = {p["productoid"]: p["titulo"]   for p in supabase.table("producto").select("productoid,titulo").execute().data}
 
-            df["pedido"] = df["pedidoid"].map(pedidos_map)
+            df["pedido"]   = df["pedidoid"].map(pedidos_map)
             df["producto"] = df["productoid"].map(productos_map)
 
             st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
@@ -92,7 +85,7 @@ def render_pedido_detalle(supabase):
                 h.markdown(f"**{txt}**")
 
             for _, row in df.iterrows():
-                did = int(row["pedidodetalleid"])
+                did  = int(row["pedidodetalleid"])
                 cols = st.columns([0.5,0.5,2,3,1,1])
 
                 with cols[0]:
@@ -137,15 +130,15 @@ def render_pedido_detalle(supabase):
                 cur = df[df["pedidodetalleid"]==eid].iloc[0].to_dict()
                 st.markdown("---"); st.subheader(f"Editar Detalle #{eid}")
                 with st.form("edit_detalle"):
-                    cantidad = st.number_input("Cantidad", value=int(cur.get("cantidad",1)), min_value=1)
-                    precio   = st.number_input("Precio Unitario (€)", value=float(cur.get("preciounitario",0)), min_value=0.0)
+                    cantidad  = st.number_input("Cantidad", value=int(cur.get("cantidad",1)), min_value=1)
+                    precio    = st.number_input("Precio Unitario (€)", value=float(cur.get("preciounitario",0)), min_value=0.0)
                     descuento = st.number_input("Descuento (%)", value=float(cur.get("descuentopct",0)), min_value=0.0, max_value=100.0, step=0.5)
                     tipoiva   = st.number_input("Tipo IVA (%)", value=float(cur.get("tipoivalinea",0)), min_value=0.0, step=0.5)
 
                     if st.form_submit_button("💾 Guardar"):
                         if can_edit():
-                            base = cantidad * precio * (1 - descuento/100)
-                            iva = base * (tipoiva/100)
+                            base  = cantidad * precio * (1 - descuento/100)
+                            iva   = base * (tipoiva/100)
                             total = base + iva
                             supabase.table(TABLE).update({
                                 "cantidad": cantidad,
@@ -162,7 +155,7 @@ def render_pedido_detalle(supabase):
                         else:
                             st.error("⚠️ Inicia sesión para editar registros.")
 
-    # --- CSV
+    # --- TAB 2: CSV
     with tab2:
         st.subheader("Importar desde CSV")
         st.caption("Columnas: pedidoid,linea,productoid,cantidad,preciounitario,descuentopct,tipoivalinea")
@@ -172,13 +165,13 @@ def render_pedido_detalle(supabase):
             st.dataframe(df, use_container_width=True)
             if st.button("➕ Insertar todos", key="btn_csv_pedidodetalle"):
                 df["importelineabase"] = df["cantidad"] * df["preciounitario"] * (1 - df["descuentopct"]/100)
-                df["importelineaiva"] = df["importelineabase"] * (df["tipoivalinea"]/100)
-                df["importelineatotal"] = df["importelineabase"] + df["importelineaiva"]
+                df["importelineaiva"]  = df["importelineabase"] * (df["tipoivalinea"]/100)
+                df["importelineatotal"]= df["importelineabase"] + df["importelineaiva"]
                 supabase.table(TABLE).insert(df.to_dict(orient="records")).execute()
                 st.success(f"✅ Insertados {len(df)}")
                 st.rerun()
 
-    # --- Instrucciones
+    # --- TAB 3: Instrucciones
     with tab3:
         st.subheader("📑 Campos de Detalle de Pedido")
         st.markdown("""

@@ -1,8 +1,6 @@
-# modules/transportista.py
 import streamlit as st
 import pandas as pd
-from .ui import section_header, draw_live_df, can_edit
-from .ui import safe_image
+from .ui import draw_live_df, can_edit, render_header
 
 TABLE = "transportista"
 FIELDS_LIST = ["transportistaid", "nombre", "observaciones"]
@@ -11,17 +9,17 @@ EDIT_KEY = "editing_transportista"
 DEL_KEY  = "pending_delete_transportista"
 
 def render_transportista(supabase):
-    # Cabecera con logo
-    col1, col2 = st.columns([4,1])
-    with col1:
-        section_header("🚚 Catálogo: Transportistas", 
-                       "Define las empresas de transporte que gestionan los envíos.")
-    with col2:
-        safe_image("logo_orbe_sinfondo-1536x479.png")
+    # ✅ Cabecera unificada
+    render_header(
+        "🚚 Catálogo: Transportistas", 
+        "Define las empresas de transporte que gestionan los envíos."
+    )
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📖 Instrucciones"])
 
-    # --- TAB 1: Formulario + Tabla
+    # -------------------------------
+    # TAB 1: Formulario + Tabla
+    # -------------------------------
     with tab1:
         st.subheader("Añadir Transportista")
         with st.form("form_transportista"):
@@ -41,7 +39,6 @@ def render_transportista(supabase):
         if not df.empty:
             st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
 
-            # Cabecera
             header = st.columns([0.5,0.5,2,3])
             for col, txt in zip(header, ["✏️","🗑️","Nombre","Observaciones"]):
                 col.markdown(f"**{txt}**")
@@ -112,7 +109,9 @@ def render_transportista(supabase):
                     st.session_state[EDIT_KEY] = None
                     st.rerun()
 
-    # --- TAB 2: CSV
+    # -------------------------------
+    # TAB 2: CSV
+    # -------------------------------
     with tab2:
         st.subheader("Importar desde CSV")
         st.caption("Columnas: nombre,observaciones")
@@ -125,7 +124,9 @@ def render_transportista(supabase):
                 st.success(f"✅ Insertados {len(df_csv)}")
                 st.rerun()
 
-    # --- TAB 3: Instrucciones
+    # -------------------------------
+    # TAB 3: Instrucciones
+    # -------------------------------
     with tab3:
         st.subheader("📑 Campos de Transportistas")
         st.markdown("""

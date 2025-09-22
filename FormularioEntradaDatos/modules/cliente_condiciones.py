@@ -1,12 +1,8 @@
 import streamlit as st
 import pandas as pd
 from .ui import (
-    section_header, draw_live_df, can_edit,
-    fetch_options
+    render_header, draw_live_df, can_edit, fetch_options
 )
-from .ui import safe_image
-from .ui import render_header
-
 
 TABLE = "clientecondiciones"
 FIELDS_LIST = [
@@ -20,7 +16,9 @@ EDIT_KEY = "editing_cc"
 DEL_KEY  = "pending_delete_cc"
 FACT_OPTIONS = ["Un solo pago", "Pagos fraccionados"]
 
-# Helpers seguros contra NaN
+# ---------------------------
+# Helpers contra NaN
+# ---------------------------
 def safe_int(val, default=0):
     try:
         if val is None or (isinstance(val, float) and pd.isna(val)):
@@ -37,15 +35,17 @@ def safe_float(val, default=0.0):
     except Exception:
         return default
 
+# ---------------------------
+# Render principal
+# ---------------------------
 def render_cliente_condiciones(supabase):
-    # Cabecera con logo
-
+    # ✅ Cabecera con logo corporativo
     render_header(
-        "⚙️ Condiciones de Cliente", "Condiciones comerciales aplicadas a clientes."
+        "⚙️ Condiciones de Cliente",
+        "Condiciones comerciales aplicadas a clientes."
     )
+
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
-
-
 
     # ---------------------------
     # TAB 1: Formulario + tabla
@@ -61,23 +61,17 @@ def render_cliente_condiciones(supabase):
             forma   = st.selectbox("Forma de pago *", formas)
             fact    = st.selectbox("Forma de facturación *", FACT_OPTIONS, index=0)
 
-            # 👉 Días tabulados
+            # 👉 Días de pago
             col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                dias = st.number_input("Días pago (general)", min_value=0, step=1)
-            with col2:
-                dias1 = st.number_input("Días pago 1", min_value=0, step=1)
-            with col3:
-                dias2 = st.number_input("Días pago 2", min_value=0, step=1)
-            with col4:
-                dias3 = st.number_input("Días pago 3", min_value=0, step=1)
+            dias  = col1.number_input("Días pago (general)", min_value=0, step=1)
+            dias1 = col2.number_input("Días pago 1", min_value=0, step=1)
+            dias2 = col3.number_input("Días pago 2", min_value=0, step=1)
+            dias3 = col4.number_input("Días pago 3", min_value=0, step=1)
 
-            # 👉 Límite y descuento juntos
+            # 👉 Límite y descuento
             col5, col6 = st.columns(2)
-            with col5:
-                limite = st.number_input("Límite crédito (€)", min_value=0.0, step=100.0)
-            with col6:
-                desc = st.number_input("Descuento comercial (%)", min_value=0.0, max_value=100.0, step=0.5)
+            limite = col5.number_input("Límite crédito (€)", min_value=0.0, step=100.0)
+            desc   = col6.number_input("Descuento comercial (%)", min_value=0.0, max_value=100.0, step=0.5)
 
             obs = st.text_area("Observaciones")
 
@@ -104,7 +98,7 @@ def render_cliente_condiciones(supabase):
         df = draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
 
         if not df.empty:
-            # 🔹 Mapear IDs a nombres legibles
+            # Mapear IDs a nombres legibles
             clientes, map_cli  = fetch_options(supabase, "cliente", "clienteid", "nombrefiscal")
             formas, map_formas = fetch_options(supabase, "formapago", "formapagoid", "nombre")
 
@@ -117,13 +111,21 @@ def render_cliente_condiciones(supabase):
                 cid = int(row["clientecondicionesid"])
                 cols = st.columns([0.5,0.5,3,3,2,2])
                 with cols[0]:
-                    if can_edit() and st.button("✏️", key=f"edit_cc_{cid}"):
-                        st.session_state[EDIT_KEY] = cid
-                        st.rerun()
+                    if can_edit():
+                        if st.button("✏️", key=f"edit_cc_{cid}"):
+                            st.session_state[EDIT_KEY] = cid
+                            st.rerun()
+                    else:
+                        st.button("✏️", key=f"edit_cc_{cid}", disabled=True)
+
                 with cols[1]:
-                    if can_edit() and st.button("🗑️", key=f"del_cc_{cid}"):
-                        st.session_state[DEL_KEY] = cid
-                        st.rerun()
+                    if can_edit():
+                        if st.button("🗑️", key=f"del_cc_{cid}"):
+                            st.session_state[DEL_KEY] = cid
+                            st.rerun()
+                    else:
+                        st.button("🗑️", key=f"del_cc_{cid}", disabled=True)
+
                 cols[2].write(row.get("clienteid",""))
                 cols[3].write(row.get("formapagoid",""))
                 cols[4].write(row.get("formafacturacionid",""))
@@ -132,6 +134,7 @@ def render_cliente_condiciones(supabase):
             # Confirmar borrado
             if st.session_state.get(DEL_KEY):
                 did = st.session_state[DEL_KEY]
+                st.markdown("---")
                 st.error(f"⚠️ ¿Eliminar condición #{did}?")
                 c1,c2 = st.columns(2)
                 with c1:
@@ -163,20 +166,14 @@ def render_cliente_condiciones(supabase):
                     )
 
                     col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        dias  = st.number_input("Días de pago", value=safe_int(cur.get("diaspago")))
-                    with col2:
-                        dias1 = st.number_input("Días de pago 1", value=safe_int(cur.get("diaspago1")))
-                    with col3:
-                        dias2 = st.number_input("Días de pago 2", value=safe_int(cur.get("diaspago2")))
-                    with col4:
-                        dias3 = st.number_input("Días de pago 3", value=safe_int(cur.get("diaspago3")))
+                    dias  = col1.number_input("Días de pago", value=safe_int(cur.get("diaspago")))
+                    dias1 = col2.number_input("Días de pago 1", value=safe_int(cur.get("diaspago1")))
+                    dias2 = col3.number_input("Días de pago 2", value=safe_int(cur.get("diaspago2")))
+                    dias3 = col4.number_input("Días de pago 3", value=safe_int(cur.get("diaspago3")))
 
                     col5, col6 = st.columns(2)
-                    with col5:
-                        limite = st.number_input("Límite crédito (€)", value=safe_float(cur.get("limitecredito")))
-                    with col6:
-                        desc   = st.number_input("Descuento (%)", value=safe_float(cur.get("descuentocomercial")))
+                    limite = col5.number_input("Límite crédito (€)", value=safe_float(cur.get("limitecredito")))
+                    desc   = col6.number_input("Descuento (%)", value=safe_float(cur.get("descuentocomercial")))
 
                     obs = st.text_area("Observaciones", value=cur.get("observaciones",""))
 

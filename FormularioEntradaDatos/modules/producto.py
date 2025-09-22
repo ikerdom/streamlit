@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
 from .ui import (
-    section_header, draw_live_df, can_edit, draw_feed_generic
+    draw_live_df, can_edit, render_header, draw_feed_generic
 )
-from .ui import safe_image
+
 TABLE = "producto"
 FIELDS_LIST = [
     "productoid","sku","isbn13","ean13","titulo","autor","coleccion","edicion",
@@ -12,26 +12,22 @@ FIELDS_LIST = [
 ]
 
 def render_producto(supabase):
-    # Cabecera con logo a la derecha + descripción + mini feed
-    col1, col2 = st.columns([4,1])
-    with col1:
-        section_header("📚 Gestión de Productos", "Libros y materiales en catálogo.")
-    with col2:
-        safe_image("logo_orbe_sinfondo-1536x479.png")
-
+    # ✅ Cabecera unificada con mini feed
+    render_header(
+        "📚 Gestión de Productos",
+        "Libros y materiales en catálogo."
+    )
     draw_feed_generic(supabase, TABLE, "titulo", "fechaalta", "productoid")
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
 
-    # -------------------------------
-    # TAB 1: Formulario
-    # -------------------------------
+    # --- TAB 1: Formulario
     with tab1:
         st.subheader("Añadir Producto")
         with st.form("form_producto"):
             sku     = st.text_input("SKU *", max_chars=50)
 
-            # ISBN y EAN en la misma fila
+            # ISBN y EAN
             col1, col2 = st.columns(2)
             with col1:
                 isbn = st.text_input("ISBN13", max_chars=13)
@@ -40,14 +36,14 @@ def render_producto(supabase):
 
             titulo  = st.text_input("Título *", max_chars=250)
 
-            # Autor y Colección en la misma fila
+            # Autor y Colección
             col3, col4 = st.columns(2)
             with col3:
                 autor = st.text_input("Autor", max_chars=200)
             with col4:
                 coleccion = st.text_input("Colección", max_chars=150)
 
-            # 👉 Tabulamos edición, formato, idioma, año y PVP
+            # Edición / formato / idioma / año / PVP
             col5, col6, col7, col8, col9 = st.columns([1,1,1,1,1])
             with col5:
                 edicion = st.text_input("Edición", max_chars=50)
@@ -126,7 +122,7 @@ def render_producto(supabase):
                 cols[5].write(row.get("stockactual",""))
                 cols[6].write(pid)
 
-            # Confirmar borrado
+            # Confirmación de borrado
             if st.session_state.get("pending_delete"):
                 did = st.session_state["pending_delete"]
                 st.markdown("---")
@@ -143,7 +139,7 @@ def render_producto(supabase):
                         st.session_state["pending_delete"] = None
                         st.rerun()
 
-                        # Edición inline
+            # Edición inline
             if st.session_state.get("editing"):
                 eid = st.session_state["editing"]
                 cur = df[df["productoid"]==eid].iloc[0].to_dict()
@@ -189,9 +185,7 @@ def render_producto(supabase):
                         else:
                             st.error("⚠️ Inicia sesión para editar registros.")
 
-    # -------------------------------
-    # TAB 2: CSV
-    # -------------------------------
+    # --- TAB 2: CSV
     with tab2:
         st.subheader("Importar desde CSV")
         st.caption("Columnas: sku,isbn13,ean13,titulo,autor,coleccion,edicion,formato,idioma,anopublicacion,pvp,tipoiva,stockactual")
@@ -207,9 +201,7 @@ def render_producto(supabase):
         st.markdown("#### 📑 Productos (en vivo)")
         draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
 
-    # -------------------------------
-    # TAB 3: Instrucciones
-    # -------------------------------
+    # --- TAB 3: Instrucciones
     with tab3:
         st.subheader("📑 Campos de Producto")
         st.markdown("""

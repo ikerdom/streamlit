@@ -1,8 +1,7 @@
-# modules/producto_familia.py
 import streamlit as st
 import pandas as pd
-from .ui import draw_live_df, can_edit, section_header
-from .ui import safe_image
+from .ui import draw_live_df, can_edit, render_header
+
 TABLE = "producto_familia"
 FIELDS_LIST = ["familiaid", "nombre"]
 
@@ -10,13 +9,11 @@ EDIT_KEY = "editing_pf"
 DEL_KEY  = "pending_delete_pf"
 
 def render_producto_familia(supabase):
-    # Cabecera con logo a la derecha
-    col1, col2 = st.columns([4,1])
-    with col1:
-        section_header("📚 Familias de Producto",
-                       "Catálogo de familias de productos para organizar el inventario.")
-    with col2:
-        safe_image("logo_orbe_sinfondo-1536x479.png")
+    # ✅ Cabecera unificada
+    render_header(
+        "📚 Familias de Producto",
+        "Catálogo de familias de productos para organizar el inventario."
+    )
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
 
@@ -41,7 +38,6 @@ def render_producto_familia(supabase):
         if not df.empty:
             st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
 
-            # Header
             header = st.columns([0.5, 0.5, 3])
             header[0].markdown("**✏️**")
             header[1].markdown("**🗑️**")
@@ -85,7 +81,6 @@ def render_producto_familia(supabase):
                         st.rerun()
                 with c2:
                     if st.button("❌ Cancelar", key="cancel_del_pf"):
-                        st.info("Operación cancelada.")
                         st.session_state[DEL_KEY] = None
                         st.rerun()
 

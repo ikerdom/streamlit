@@ -1,8 +1,6 @@
-# modules/formapago.py
 import streamlit as st
 import pandas as pd
-from .ui import section_header, can_edit
-from .ui import safe_image
+from .ui import render_header, can_edit
 
 TABLE = "formapago"
 FIELDS_LIST = ["formapagoid", "nombre"]
@@ -11,13 +9,11 @@ EDIT_KEY = "editing_formapago"
 DEL_KEY  = "pending_delete_formapago"
 
 def render_forma_pago(supabase):
-    # Cabecera con logo
-    col1, col2 = st.columns([4,1])
-    with col1:
-        section_header("💳 Catálogo: Formas de Pago",
-                       "Define los métodos de pago disponibles para los pedidos (ej. transferencia, tarjeta, etc.).")
-    with col2:
-        safe_image("logo_orbe_sinfondo-1536x479.png")
+    # ✅ Cabecera corporativa
+    render_header(
+        "💳 Catálogo: Formas de Pago",
+        "Define los métodos de pago disponibles para los pedidos (ej. transferencia, tarjeta, etc.)."
+    )
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📖 Instrucciones"])
 
@@ -35,8 +31,10 @@ def render_forma_pago(supabase):
                     st.rerun()
 
         st.markdown("#### 📑 Formas de Pago actuales con acciones")
-        df = supabase.table(TABLE).select("*").execute().data
-        df = pd.DataFrame(df, columns=FIELDS_LIST) if df else pd.DataFrame(columns=FIELDS_LIST)
+        df = pd.DataFrame(
+            supabase.table(TABLE).select("*").execute().data,
+            columns=FIELDS_LIST
+        )
 
         if not df.empty:
             st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
@@ -49,25 +47,14 @@ def render_forma_pago(supabase):
                 fid = int(row["formapagoid"])
                 cols = st.columns([0.5,0.5,3])
 
-                # Editar
-                with cols[0]:
-                    if can_edit():
-                        if st.button("✏️", key=f"edit_pago_{fid}"):
-                            st.session_state[EDIT_KEY] = fid
-                            st.rerun()
-                    else:
-                        st.button("✏️", key=f"edit_pago_{fid}", disabled=True)
-
-                # Borrar
-                with cols[1]:
-                    if can_edit():
-                        if st.button("🗑️", key=f"del_pago_{fid}"):
-                            st.session_state[DEL_KEY] = fid
-                            st.rerun()
-                    else:
-                        st.button("🗑️", key=f"del_pago_{fid}", disabled=True)
-
                 cols[2].write(row.get("nombre",""))
+
+                with cols[0]:
+                    if can_edit() and st.button("✏️", key=f"edit_pago_{fid}"):
+                        st.session_state[EDIT_KEY] = fid; st.rerun()
+                with cols[1]:
+                    if can_edit() and st.button("🗑️", key=f"del_pago_{fid}"):
+                        st.session_state[DEL_KEY] = fid; st.rerun()
 
             # Confirmar borrado
             if st.session_state.get(DEL_KEY):
@@ -79,32 +66,27 @@ def render_forma_pago(supabase):
                     if st.button("✅ Confirmar", key="pago_confirm_del"):
                         supabase.table(TABLE).delete().eq("formapagoid", did).execute()
                         st.success("✅ Forma de pago eliminada")
-                        st.session_state[DEL_KEY] = None
-                        st.rerun()
+                        st.session_state[DEL_KEY] = None; st.rerun()
                 with c2:
                     if st.button("❌ Cancelar", key="pago_cancel_del"):
-                        st.session_state[DEL_KEY] = None
-                        st.rerun()
+                        st.session_state[DEL_KEY] = None; st.rerun()
 
             # Edición inline
             if st.session_state.get(EDIT_KEY):
                 eid = st.session_state[EDIT_KEY]
                 cur = df[df["formapagoid"]==eid].iloc[0].to_dict()
-                st.markdown("---")
-                st.subheader(f"Editar Forma de Pago #{eid}")
+                st.markdown("---"); st.subheader(f"Editar Forma de Pago #{eid}")
                 with st.form("edit_formapago"):
                     nombre = st.text_input("Nombre", cur.get("nombre",""))
                     if st.form_submit_button("💾 Guardar"):
                         if can_edit():
                             supabase.table(TABLE).update({"nombre": nombre}).eq("formapagoid", eid).execute()
                             st.success("✅ Forma de pago actualizada")
-                            st.session_state[EDIT_KEY] = None
-                            st.rerun()
+                            st.session_state[EDIT_KEY] = None; st.rerun()
                         else:
                             st.error("⚠️ Inicia sesión para editar registros.")
                 if st.button("❌ Cancelar", key="pago_cancel_edit"):
-                    st.session_state[EDIT_KEY] = None
-                    st.rerun()
+                    st.session_state[EDIT_KEY] = None; st.rerun()
 
     # --- TAB 2: CSV
     with tab2:

@@ -1,31 +1,29 @@
 import streamlit as st
-from .ui import render_header
-
-
 import pandas as pd
 from .ui import (
-    draw_live_df, can_edit, section_header,
-    fetch_options
+    render_header, draw_live_df, can_edit, fetch_options
 )
 
 TABLE = "clientebanco"
-FIELDS_LIST = ["clientebancoid","clienteid","iban","bic","titular","banco","predeterminado"]
+FIELDS_LIST = [
+    "clientebancoid","clienteid","iban","bic",
+    "titular","banco","predeterminado"
+]
 
 def render_cliente_banco(supabase):
-    # Cabecera con logo
-
+    # ✅ Cabecera unificada con logo
     render_header(
         "🏦 Bancos Cliente",
-                       "Gestión de cuentas bancarias asociadas a cada cliente."
+        "Gestión de cuentas bancarias asociadas a cada cliente."
     )
-
-
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
 
     # --- Formulario
     with tab1:
-        clientes, map_clientes = fetch_options(supabase, "cliente", "clienteid", "nombrefiscal")
+        clientes, map_clientes = fetch_options(
+            supabase, "cliente", "clienteid", "nombrefiscal"
+        )
 
         with st.form("form_clientebanco"):
             cliente = st.selectbox("Cliente *", clientes)
@@ -55,10 +53,12 @@ def render_cliente_banco(supabase):
         df = draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
 
         if not df.empty:
-            # Reemplazar clienteid por nombre fiscal
-            clientes_map = {c["clienteid"]: c["nombrefiscal"]
-                            for c in supabase.table("cliente")
-                            .select("clienteid,nombrefiscal").execute().data}
+            # Mapear clienteid a nombre fiscal
+            clientes_map = {
+                c["clienteid"]: c["nombrefiscal"]
+                for c in supabase.table("cliente")
+                .select("clienteid,nombrefiscal").execute().data
+            }
             df["cliente"] = df["clienteid"].map(clientes_map)
 
             st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
@@ -75,7 +75,8 @@ def render_cliente_banco(supabase):
                 with cols[0]:
                     if can_edit():
                         if st.button("✏️", key=f"edit_{bid}"):
-                            st.session_state["editing"] = bid; st.rerun()
+                            st.session_state["editing"] = bid
+                            st.rerun()
                     else:
                         st.button("✏️", key=f"edit_{bid}", disabled=True)
 
@@ -83,7 +84,8 @@ def render_cliente_banco(supabase):
                 with cols[1]:
                     if can_edit():
                         if st.button("🗑️", key=f"ask_del_{bid}"):
-                            st.session_state["pending_delete"] = bid; st.rerun()
+                            st.session_state["pending_delete"] = bid
+                            st.rerun()
                     else:
                         st.button("🗑️", key=f"ask_del_{bid}", disabled=True)
 
@@ -98,7 +100,7 @@ def render_cliente_banco(supabase):
                 did = st.session_state["pending_delete"]
                 st.markdown("---")
                 st.error(f"⚠️ ¿Seguro que quieres eliminar la cuenta #{did}?")
-                c1,c2 = st.columns(2)
+                c1, c2 = st.columns(2)
                 with c1:
                     if st.button("✅ Confirmar", key="confirm_del"):
                         supabase.table(TABLE).delete().eq("clientebancoid", did).execute()
@@ -114,7 +116,8 @@ def render_cliente_banco(supabase):
             if st.session_state.get("editing"):
                 eid = st.session_state["editing"]
                 cur = df[df["clientebancoid"]==eid].iloc[0].to_dict()
-                st.markdown("---"); st.subheader(f"Editar Cuenta #{eid}")
+                st.markdown("---")
+                st.subheader(f"Editar Cuenta #{eid}")
                 with st.form("edit_banco"):
                     iban = st.text_input("IBAN", cur.get("iban",""))
                     bic = st.text_input("BIC", cur.get("bic",""))

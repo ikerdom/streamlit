@@ -1,21 +1,18 @@
 import streamlit as st
 import pandas as pd
 from .ui import (
-    section_header, draw_live_df, can_edit, draw_feed_generic
+    draw_live_df, can_edit, draw_feed_generic, render_header
 )
-from .ui import safe_image
+
 TABLE = "trabajador"
 FIELDS_LIST = ["trabajadorid","codigoempleado","nombre","email","telefono","activo","fechaalta"]
 
 def render_trabajador(supabase):
-    # Cabecera con logo a la derecha + mini feed
-    col1, col2 = st.columns([4,1])
-    with col1:
-        section_header("👨‍💼 Gestión de Trabajadores", "Altas y gestión de empleados.")
-    with col2:
-        safe_image("logo_orbe_sinfondo-1536x479.png")
-
-    # Mini feed
+    # ✅ Cabecera unificada + mini feed
+    render_header(
+        "👨‍💼 Gestión de Trabajadores",
+        "Altas y gestión de empleados."
+    )
     draw_feed_generic(supabase, TABLE, "nombre", "fechaalta", "trabajadorid")
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
@@ -30,16 +27,13 @@ def render_trabajador(supabase):
         trabajadores = supabase.table(TABLE).select("trabajadorid,codigoempleado,nombre").execute().data or []
         opciones = [f"{t['codigoempleado']} - {t['nombre']}" for t in trabajadores]
 
-        # 👉 Primero EXISTENTE, luego NUEVO (como en Grupo)
+        # 👉 Primero EXISTENTE, luego NUEVO (igual que en Grupo)
         modo = st.radio("¿Qué deseas hacer?", ["👤 Seleccionar existente", "➕ Nuevo trabajador"])
 
         with st.form("form_trabajador"):
             if modo == "👤 Seleccionar existente":
                 seleccionado = st.selectbox("Trabajador existente", opciones)
-                codigo = None
-                nombre = None
-                email  = None
-                tel    = None
+                codigo, nombre, email, tel = None, None, None, None
             else:
                 codigo = st.text_input("Código Empleado *", max_chars=30)
                 nombre = st.text_input("Nombre *", max_chars=150)
@@ -65,9 +59,10 @@ def render_trabajador(supabase):
         st.markdown("#### 📑 Tabla en vivo con acciones")
         df = draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
 
-        # --- Acciones de edición/borrado (igual que antes) ---
+        # --- Acciones de edición/borrado ---
         if not df.empty:
             st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
+
             header = st.columns([0.5,0.5,2,2,2,2,1])
             for c, t in zip(header, ["✏️","🗑️","Código","Nombre","Email","Teléfono","Activo"]):
                 c.markdown(f"**{t}**")
@@ -75,11 +70,13 @@ def render_trabajador(supabase):
             for _, row in df.iterrows():
                 tid = int(row["trabajadorid"])
                 cols = st.columns([0.5,0.5,2,2,2,2,1])
+
                 # Editar
                 with cols[0]:
                     if can_edit() and st.button("✏️", key=f"tra_edit_{tid}"):
                         st.session_state["editing"] = tid
                         st.rerun()
+
                 # Borrar
                 with cols[1]:
                     if can_edit() and st.button("🗑️", key=f"tra_delask_{tid}"):
@@ -146,6 +143,8 @@ def render_trabajador(supabase):
                 supabase.table(TABLE).insert(df_csv.to_dict(orient="records")).execute()
                 st.success(f"✅ Insertados {len(df_csv)}")
                 st.rerun()
+
+        st.markdown("#### 📑 Trabajadores (en vivo)")
         draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
 
     # -------------------------------

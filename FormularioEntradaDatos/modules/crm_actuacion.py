@@ -1,10 +1,6 @@
-# modules/crm_actuacion.py
 import streamlit as st
 import pandas as pd
-from .ui import safe_image
-from .ui import (
-    section_header, can_edit, fetch_options
-)
+from .ui import render_header, can_edit, fetch_options
 
 TABLE = "crm_actuacion"
 FIELDS_LIST = [
@@ -19,13 +15,11 @@ EDIT_KEY = "editing_crm"
 DEL_KEY  = "pending_delete_crm"
 
 def render_crm_actuacion(supabase):
-    # Cabecera con logo
-    col1, col2 = st.columns([4,1])
-    with col1:
-        section_header("📞 CRM Actuaciones",
-                       "Registro de llamadas, emails, visitas o incidencias con clientes o trabajadores.")
-    with col2:
-        safe_image("logo_orbe_sinfondo-1536x479.png")
+    # ✅ Cabecera corporativa con logo
+    render_header(
+        "📞 CRM Actuaciones",
+        "Registro de llamadas, emails, visitas o incidencias con clientes o trabajadores."
+    )
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📖 Instrucciones"])
 
@@ -41,8 +35,7 @@ def render_crm_actuacion(supabase):
         trabajadores, map_trab = fetch_options(supabase, "trabajador", "trabajadorid", "nombre")
 
         with st.form("form_crm"):
-            clienteid = None
-            trabajadorid = None
+            clienteid, trabajadorid = None, None
 
             if modo == "Cliente":
                 cliente_sel = st.selectbox("Cliente *", clientes)
@@ -69,7 +62,7 @@ def render_crm_actuacion(supabase):
                         "clienteid": clienteid,
                         "trabajadorid": trabajadorid,
                         "fecha": str(fecha),
-                        "canal": canal.lower(),   # normalizamos a minúscula
+                        "canal": canal.lower(),
                         "descripcion": descripcion.strip(),
                         "estado": estado.lower()
                     }
@@ -79,8 +72,7 @@ def render_crm_actuacion(supabase):
 
         st.markdown("#### 📑 Actuaciones registradas")
 
-        df = supabase.table(TABLE).select("*").execute().data
-        df = pd.DataFrame(df)
+        df = pd.DataFrame(supabase.table(TABLE).select("*").execute().data)
 
         if not df.empty:
             # Mapear nombres
@@ -89,7 +81,6 @@ def render_crm_actuacion(supabase):
             trabajadores_map = {t["trabajadorid"]: t["nombre"]
                                 for t in supabase.table("trabajador").select("trabajadorid,nombre").execute().data}
 
-            # Nueva columna "Entidad" y "Tipo"
             df["Entidad"] = df.apply(
                 lambda r: clientes_map.get(r["clienteid"]) if pd.notna(r["clienteid"]) else trabajadores_map.get(r["trabajadorid"], "—"),
                 axis=1
@@ -99,7 +90,7 @@ def render_crm_actuacion(supabase):
                 axis=1
             )
 
-            # Header
+            # Cabecera tabla
             header = st.columns([0.5,0.5,2,2,2,2,3,2])
             for col, txt in zip(header, ["✏️","🗑️","Tipo","Entidad","Fecha","Canal","Descripción","Estado"]):
                 col.markdown(f"**{txt}**")
@@ -107,34 +98,27 @@ def render_crm_actuacion(supabase):
             for _, row in df.iterrows():
                 if pd.isna(row["actuacionid"]):
                     continue
-
                 aid = int(row["actuacionid"])
                 cols = st.columns([0.5,0.5,2,2,2,2,3,2])
 
                 cols[2].write(row.get("Tipo",""))
                 cols[3].write(row.get("Entidad",""))
-                cols[4].write(str(row.get("fecha",""))[:10])  # fecha corta YYYY-MM-DD
+                cols[4].write(str(row.get("fecha",""))[:10])
                 cols[5].write(row.get("canal",""))
                 cols[6].write(row.get("descripcion",""))
                 cols[7].write(row.get("estado",""))
 
-                # Editar
+                # Botones editar/borrar
                 with cols[0]:
                     if can_edit():
                         if st.button("✏️", key=f"edit_{aid}"):
                             st.session_state[EDIT_KEY] = aid; st.rerun()
-                    else:
-                        st.button("✏️", key=f"edit_{aid}", disabled=True)
-
-                # Borrar
                 with cols[1]:
                     if can_edit():
                         if st.button("🗑️", key=f"del_{aid}"):
                             st.session_state[DEL_KEY] = aid; st.rerun()
-                    else:
-                        st.button("🗑️", key=f"del_{aid}", disabled=True)
 
-            # Confirmar borrado
+            # Confirmación de borrado
             if st.session_state.get(DEL_KEY):
                 did = st.session_state[DEL_KEY]
                 st.markdown("---")
@@ -155,12 +139,15 @@ def render_crm_actuacion(supabase):
             if st.session_state.get(EDIT_KEY):
                 eid = st.session_state[EDIT_KEY]
                 cur = df[df["actuacionid"]==eid].iloc[0].to_dict()
-                st.markdown("---"); st.subheader(f"Editar Actuación #{eid}")
+                st.markdown("---")
+                st.subheader(f"Editar Actuación #{eid}")
                 with st.form("edit_crm"):
                     descripcion = st.text_area("Descripción", cur.get("descripcion",""))
-                    estado = st.selectbox("Estado", ESTADO_OPCIONES,
-                                          index=ESTADO_OPCIONES.index(cur.get("estado").capitalize())
-                                          if cur.get("estado") else 0)
+                    estado = st.selectbox(
+                        "Estado", ESTADO_OPCIONES,
+                        index=ESTADO_OPCIONES.index(cur.get("estado").capitalize())
+                        if cur.get("estado") else 0
+                    )
                     if st.form_submit_button("💾 Guardar"):
                         supabase.table(TABLE).update({
                             "descripcion": descripcion,

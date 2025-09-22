@@ -1,10 +1,8 @@
 import streamlit as st
 import pandas as pd
 from .ui import (
-    draw_live_df, can_edit, section_header,
-    fetch_options
+    render_header, draw_live_df, can_edit, fetch_options
 )
-from .ui import safe_image
 
 TABLE = "clientedireccion"
 FIELDS_LIST = [
@@ -13,14 +11,16 @@ FIELDS_LIST = [
     "provincia","pais","predeterminada","fechaalta"
 ]
 
+EDIT_KEY = "editing_dir"
+DEL_KEY  = "pending_delete_dir"
+
 def render_cliente_direccion(supabase):
-    # Cabecera con logo
-    col1, col2 = st.columns([4,1])
-    with col1:
-        section_header("📍 Direcciones Cliente",
-                       "Gestión de direcciones asociadas a cada cliente (facturación, envío, etc.).")
-    with col2:
-        safe_image("logo_orbe_sinfondo-1536x479.png")
+    # ✅ Cabecera corporativa con logo
+    render_header(
+        "📍 Direcciones Cliente",
+        "Gestión de direcciones asociadas a cada cliente (facturación, envío, etc.)."
+    )
+
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
 
     # --- TAB 1: Formulario
@@ -33,32 +33,21 @@ def render_cliente_direccion(supabase):
             alias = st.text_input("Alias")
             nombre = st.text_input("Nombre Destinatario")
 
-            # 👉 Email y teléfono en la misma fila
             col1, col2 = st.columns(2)
-            with col1:
-                email = st.text_input("Email")
-            with col2:
-                telefono = st.text_input("Teléfono")
+            email    = col1.text_input("Email")
+            telefono = col2.text_input("Teléfono")
 
-            # 👉 Direcciones en la misma fila
             col3, col4 = st.columns(2)
-            with col3:
-                direccion1 = st.text_input("Dirección 1 *")
-            with col4:
-                direccion2 = st.text_input("Dirección 2")
+            direccion1 = col3.text_input("Dirección 1 *")
+            direccion2 = col4.text_input("Dirección 2")
 
-            # 👉 CP y ciudad/provincia/pais tabulados
             col5, col6 = st.columns(2)
-            with col5:
-                cp = st.text_input("Código Postal *", max_chars=10)
-            with col6:
-                ciudad = st.text_input("Ciudad *")
+            cp     = col5.text_input("Código Postal *", max_chars=10)
+            ciudad = col6.text_input("Ciudad *")
 
             col7, col8 = st.columns(2)
-            with col7:
-                provincia = st.text_input("Provincia")
-            with col8:
-                pais = st.text_input("País", value="España")
+            provincia = col7.text_input("Provincia")
+            pais      = col8.text_input("País", value="España")
 
             predeterminado = st.checkbox("Predeterminada", value=False)
 
@@ -106,17 +95,17 @@ def render_cliente_direccion(supabase):
 
                 with cols[0]:
                     if can_edit():
-                        if st.button("✏️", key=f"edit_{did}"):
-                            st.session_state["editing"] = did; st.rerun()
+                        if st.button("✏️", key=f"edit_dir_{did}"):
+                            st.session_state[EDIT_KEY] = did; st.rerun()
                     else:
-                        st.button("✏️", key=f"edit_{did}", disabled=True)
+                        st.button("✏️", key=f"edit_dir_{did}", disabled=True)
 
                 with cols[1]:
                     if can_edit():
-                        if st.button("🗑️", key=f"ask_del_{did}"):
-                            st.session_state["pending_delete"] = did; st.rerun()
+                        if st.button("🗑️", key=f"del_dir_{did}"):
+                            st.session_state[DEL_KEY] = did; st.rerun()
                     else:
-                        st.button("🗑️", key=f"ask_del_{did}", disabled=True)
+                        st.button("🗑️", key=f"del_dir_{did}", disabled=True)
 
                 cols[2].write(row.get("cliente",""))
                 cols[3].write(row.get("tipo",""))
@@ -126,55 +115,48 @@ def render_cliente_direccion(supabase):
                 cols[7].write("✅" if row.get("predeterminada") else "—")
 
             # Confirmar borrado
-            if st.session_state.get("pending_delete"):
-                did = st.session_state["pending_delete"]
+            if st.session_state.get(DEL_KEY):
+                did = st.session_state[DEL_KEY]
                 st.markdown("---")
                 st.error(f"⚠️ ¿Eliminar dirección #{did}?")
                 c1,c2 = st.columns(2)
                 with c1:
-                    if st.button("✅ Confirmar", key="confirm_del"):
+                    if st.button("✅ Confirmar", key="confirm_del_dir"):
                         supabase.table(TABLE).delete().eq("clientedireccionid", did).execute()
                         st.success("✅ Dirección eliminada")
-                        st.session_state["pending_delete"] = None
+                        st.session_state[DEL_KEY] = None
                         st.rerun()
                 with c2:
-                    if st.button("❌ Cancelar", key="cancel_del"):
-                        st.session_state["pending_delete"] = None
+                    if st.button("❌ Cancelar", key="cancel_del_dir"):
+                        st.session_state[DEL_KEY] = None
                         st.rerun()
 
             # Edición inline
-            if st.session_state.get("editing"):
-                eid = st.session_state["editing"]
+            if st.session_state.get(EDIT_KEY):
+                eid = st.session_state[EDIT_KEY]
                 cur = df[df["clientedireccionid"]==eid].iloc[0].to_dict()
                 st.markdown("---"); st.subheader(f"Editar Dirección #{eid}")
-                with st.form("edit_direccion"):
-                    tipo = st.selectbox("Tipo", ["Facturación","Envío","Otro"], index=0)
+                with st.form(f"edit_dir_{eid}"):
+                    tipo  = st.selectbox("Tipo", ["Facturación","Envío","Otro"],
+                                         index=(["Facturación","Envío","Otro"].index(cur.get("tipo")) if cur.get("tipo") in ["Facturación","Envío","Otro"] else 0))
                     alias = st.text_input("Alias", cur.get("alias",""))
                     nombre = st.text_input("Nombre Destinatario", cur.get("nombredestinatario",""))
 
                     col1, col2 = st.columns(2)
-                    with col1:
-                        email = st.text_input("Email", cur.get("email",""))
-                    with col2:
-                        telefono = st.text_input("Teléfono", cur.get("telefono",""))
+                    email    = col1.text_input("Email", cur.get("email",""))
+                    telefono = col2.text_input("Teléfono", cur.get("telefono",""))
 
                     col3, col4 = st.columns(2)
-                    with col3:
-                        direccion1 = st.text_input("Dirección 1", cur.get("direccion1",""))
-                    with col4:
-                        direccion2 = st.text_input("Dirección 2", cur.get("direccion2",""))
+                    direccion1 = col3.text_input("Dirección 1", cur.get("direccion1",""))
+                    direccion2 = col4.text_input("Dirección 2", cur.get("direccion2",""))
 
                     col5, col6 = st.columns(2)
-                    with col5:
-                        cp = st.text_input("Código Postal", cur.get("cp",""))
-                    with col6:
-                        ciudad = st.text_input("Ciudad", cur.get("ciudad",""))
+                    cp     = col5.text_input("Código Postal", cur.get("cp",""))
+                    ciudad = col6.text_input("Ciudad", cur.get("ciudad",""))
 
                     col7, col8 = st.columns(2)
-                    with col7:
-                        provincia = st.text_input("Provincia", cur.get("provincia",""))
-                    with col8:
-                        pais = st.text_input("País", cur.get("pais","España"))
+                    provincia = col7.text_input("Provincia", cur.get("provincia",""))
+                    pais      = col8.text_input("País", cur.get("pais","España"))
 
                     pred = st.checkbox("Predeterminada", value=cur.get("predeterminada",False))
 
@@ -195,7 +177,7 @@ def render_cliente_direccion(supabase):
                                 "predeterminada": pred
                             }).eq("clientedireccionid", eid).execute()
                             st.success("✅ Dirección actualizada")
-                            st.session_state["editing"] = None
+                            st.session_state[EDIT_KEY] = None
                             st.rerun()
                         else:
                             st.error("⚠️ Inicia sesión para editar registros.")

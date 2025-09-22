@@ -1,8 +1,7 @@
-# modules/estado_pedido.py
 import streamlit as st
 import pandas as pd
-from .ui import section_header, draw_live_df, can_edit
-from .ui import safe_image
+from .ui import render_header, draw_live_df, can_edit
+
 TABLE = "estadopedido"
 FIELDS_LIST = ["estadopedidoid", "nombre", "descripcion"]
 
@@ -12,12 +11,11 @@ EDIT_KEY = "editing_estado"
 DEL_KEY  = "pending_delete_estado"
 
 def render_estado_pedido(supabase):
-    # Cabecera con logo
-    col1, col2 = st.columns([4,1])
-    with col1:
-        section_header("📌 Estados de Pedido", "Catálogo de estados posibles de un pedido.")
-    with col2:
-        safe_image("logo_orbe_sinfondo-1536x479.png")
+    # ✅ Cabecera corporativa con logo
+    render_header(
+        "📌 Estados de Pedido",
+        "Catálogo de estados posibles de un pedido."
+    )
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📖 Instrucciones"])
 
@@ -39,9 +37,6 @@ def render_estado_pedido(supabase):
         df = draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
 
         if not df.empty:
-            st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
-
-            # Cabecera
             header = st.columns([0.5,0.5,2,3])
             for col, txt in zip(header, ["✏️","🗑️","Nombre","Descripción"]):
                 col.markdown(f"**{txt}**")
@@ -50,26 +45,17 @@ def render_estado_pedido(supabase):
                 eid = int(row["estadopedidoid"])
                 cols = st.columns([0.5,0.5,2,3])
 
-                # Editar
+                cols[2].write(row.get("nombre",""))
+                cols[3].write(row.get("descripcion",""))
+
                 with cols[0]:
                     if can_edit():
                         if st.button("✏️", key=f"edit_estado_{eid}"):
-                            st.session_state[EDIT_KEY] = eid
-                            st.rerun()
-                    else:
-                        st.button("✏️", key=f"edit_estado_{eid}", disabled=True)
-
-                # Borrar
+                            st.session_state[EDIT_KEY] = eid; st.rerun()
                 with cols[1]:
                     if can_edit():
                         if st.button("🗑️", key=f"del_estado_{eid}"):
-                            st.session_state[DEL_KEY] = eid
-                            st.rerun()
-                    else:
-                        st.button("🗑️", key=f"del_estado_{eid}", disabled=True)
-
-                cols[2].write(row.get("nombre",""))
-                cols[3].write(row.get("descripcion",""))
+                            st.session_state[DEL_KEY] = eid; st.rerun()
 
             # Confirmación de borrado
             if st.session_state.get(DEL_KEY):
@@ -110,8 +96,6 @@ def render_estado_pedido(supabase):
                             st.success("✅ Estado actualizado")
                             st.session_state[EDIT_KEY] = None
                             st.rerun()
-                        else:
-                            st.error("⚠️ Inicia sesión para editar registros.")
                 if st.button("❌ Cancelar", key="estado_cancel_edit"):
                     st.session_state[EDIT_KEY] = None
                     st.rerun()

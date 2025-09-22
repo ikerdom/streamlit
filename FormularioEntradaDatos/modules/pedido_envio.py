@@ -1,11 +1,8 @@
 import streamlit as st
 import pandas as pd
 from .ui import (
-    draw_live_df, can_edit, section_header,
-    fetch_options
+    draw_live_df, can_edit, fetch_options, render_header
 )
-from .ui import safe_image
-
 
 TABLE = "pedidoenvio"
 FIELDS_LIST = [
@@ -15,33 +12,31 @@ FIELDS_LIST = [
 ]
 
 def render_pedido_envio(supabase):
-    # Cabecera con logo
-    col1, col2 = st.columns([4,1])
-    with col1:
-        section_header("🚚 Envío de Pedido",
-                       "Gestión de datos de envío asociados a cada pedido.")
-    with col2:
-        safe_image("logo_orbe_sinfondo-1536x479.png")
+    # ✅ Cabecera unificada
+    render_header(
+        "🚚 Envío de Pedido",
+        "Gestión de datos de envío asociados a cada pedido."
+    )
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
 
-    # --- Formulario
+    # --- TAB 1: Formulario
     with tab1:
-        pedidos, map_pedidos = fetch_options(supabase, "pedido", "pedidoid", "numpedido")
-        direcciones, map_direcciones = fetch_options(supabase, "clientedireccion", "clientedireccionid", "alias")
-        transportistas, map_transportistas = fetch_options(supabase, "transportista", "transportistaid", "nombre")
-        metodos, map_metodos = fetch_options(supabase, "metodoenvio", "metodoenvioid", "nombre")
+        pedidos, map_pedidos       = fetch_options(supabase, "pedido", "pedidoid", "numpedido")
+        direcciones, map_dirs      = fetch_options(supabase, "clientedireccion", "clientedireccionid", "alias")
+        transportistas, map_transp = fetch_options(supabase, "transportista", "transportistaid", "nombre")
+        metodos, map_metodos       = fetch_options(supabase, "metodoenvio", "metodoenvioid", "nombre")
 
         with st.form("form_pedidoenvio"):
-            pedido = st.selectbox("Pedido *", pedidos)
-            direccion = st.selectbox("Dirección Cliente", ["— Ninguna —"] + direcciones)
-            nombre = st.text_input("Nombre Destinatario *")
+            pedido     = st.selectbox("Pedido *", pedidos)
+            direccion  = st.selectbox("Dirección Cliente", ["— Ninguna —"] + direcciones)
+            nombre     = st.text_input("Nombre Destinatario *")
             direccion1 = st.text_input("Dirección 1 *")
-            cp = st.text_input("Código Postal *", max_chars=10)
+            cp         = st.text_input("Código Postal *", max_chars=10)
 
             c1, c2 = st.columns(2)
             with c1:
-                ciudad = st.text_input("Ciudad *")
+                ciudad    = st.text_input("Ciudad *")
             with c2:
                 provincia = st.text_input("Provincia")
 
@@ -53,7 +48,7 @@ def render_pedido_envio(supabase):
             with c4:
                 metodo = st.selectbox("Método Envío", ["— Ninguno —"] + metodos)
 
-            coste = st.number_input("Coste Envío (€)", min_value=0.0, step=0.5)
+            coste    = st.number_input("Coste Envío (€)", min_value=0.0, step=0.5)
             tracking = st.text_input("Tracking")
 
             if st.form_submit_button("➕ Insertar"):
@@ -62,14 +57,14 @@ def render_pedido_envio(supabase):
                 else:
                     nuevo = {
                         "pedidoid": map_pedidos.get(pedido),
-                        "clientedireccionid": map_direcciones.get(direccion),
+                        "clientedireccionid": map_dirs.get(direccion),
                         "nombredestinatario": nombre,
                         "direccion1": direccion1,
                         "cp": cp,
                         "ciudad": ciudad,
                         "provincia": provincia,
                         "pais": pais,
-                        "transportistaid": map_transportistas.get(transp),
+                        "transportistaid": map_transp.get(transp),
                         "metodoenvioid": map_metodos.get(metodo),
                         "costeenvio": coste,
                         "tracking": tracking
@@ -82,16 +77,16 @@ def render_pedido_envio(supabase):
         df = draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
 
         if not df.empty:
-            # Mapear IDs a nombres
-            pedidos_map = {p["pedidoid"]: p["numpedido"] for p in supabase.table("pedido").select("pedidoid,numpedido").execute().data}
-            direcciones_map = {d["clientedireccionid"]: d.get("alias","") for d in supabase.table("clientedireccion").select("clientedireccionid,alias").execute().data}
+            # Mapear IDs a nombres legibles
+            pedidos_map        = {p["pedidoid"]: p["numpedido"] for p in supabase.table("pedido").select("pedidoid,numpedido").execute().data}
+            direcciones_map    = {d["clientedireccionid"]: d.get("alias","") for d in supabase.table("clientedireccion").select("clientedireccionid,alias").execute().data}
             transportistas_map = {t["transportistaid"]: t["nombre"] for t in supabase.table("transportista").select("transportistaid,nombre").execute().data}
-            metodos_map = {m["metodoenvioid"]: m["nombre"] for m in supabase.table("metodoenvio").select("metodoenvioid,nombre").execute().data}
+            metodos_map        = {m["metodoenvioid"]: m["nombre"] for m in supabase.table("metodoenvio").select("metodoenvioid,nombre").execute().data}
 
-            df["pedido"] = df["pedidoid"].map(pedidos_map)
-            df["direccion"] = df["clientedireccionid"].map(direcciones_map)
+            df["pedido"]        = df["pedidoid"].map(pedidos_map)
+            df["direccion"]     = df["clientedireccionid"].map(direcciones_map)
             df["transportista"] = df["transportistaid"].map(transportistas_map)
-            df["metodo"] = df["metodoenvioid"].map(metodos_map)
+            df["metodo"]        = df["metodoenvioid"].map(metodos_map)
 
             st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
 
@@ -100,7 +95,7 @@ def render_pedido_envio(supabase):
                 col.markdown(f"**{txt}**")
 
             for _, row in df.iterrows():
-                eid = int(row["pedidoenvioid"])
+                eid  = int(row["pedidoenvioid"])
                 cols = st.columns([0.5,0.5,2,2,2,1,1])
 
                 # Editar
@@ -148,17 +143,17 @@ def render_pedido_envio(supabase):
                 cur = df[df["pedidoenvioid"]==eid].iloc[0].to_dict()
                 st.markdown("---"); st.subheader(f"Editar Envío #{eid}")
                 with st.form("edit_envio"):
-                    nombre = st.text_input("Nombre Destinatario", cur.get("nombredestinatario",""))
+                    nombre     = st.text_input("Nombre Destinatario", cur.get("nombredestinatario",""))
                     direccion1 = st.text_input("Dirección 1", cur.get("direccion1",""))
-                    cp = st.text_input("Código Postal", cur.get("cp",""))
+                    cp         = st.text_input("Código Postal", cur.get("cp",""))
 
                     c1, c2 = st.columns(2)
                     with c1:
-                        ciudad = st.text_input("Ciudad", cur.get("ciudad",""))
+                        ciudad    = st.text_input("Ciudad", cur.get("ciudad",""))
                     with c2:
                         provincia = st.text_input("Provincia", cur.get("provincia",""))
 
-                    coste  = st.number_input("Coste Envío (€)", value=float(cur.get("costeenvio",0)), step=0.5)
+                    coste    = st.number_input("Coste Envío (€)", value=float(cur.get("costeenvio",0)), step=0.5)
                     tracking = st.text_input("Tracking", cur.get("tracking",""))
                     if st.form_submit_button("💾 Guardar"):
                         if can_edit():
@@ -174,8 +169,10 @@ def render_pedido_envio(supabase):
                             st.success("✅ Envío actualizado")
                             st.session_state["editing"] = None
                             st.rerun()
+                        else:
+                            st.error("⚠️ Inicia sesión para editar registros.")
 
-    # --- CSV
+    # --- TAB 2: CSV
     with tab2:
         st.subheader("Importar desde CSV")
         st.caption("Columnas: pedidoid,clientedireccionid,nombredestinatario,direccion1,cp,ciudad,provincia,pais,transportistaid,metodoenvioid,costeenvio,tracking")
@@ -188,7 +185,7 @@ def render_pedido_envio(supabase):
                 st.success(f"✅ Insertados {len(df)}")
                 st.rerun()
 
-    # --- Instrucciones
+    # --- TAB 3: Instrucciones
     with tab3:
         st.subheader("📑 Campos de Envío de Pedido")
         st.markdown("""

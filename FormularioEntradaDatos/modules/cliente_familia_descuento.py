@@ -1,9 +1,8 @@
 # modules/cliente_familia_descuento.py
 import streamlit as st
 import pandas as pd
-from .ui import safe_image
 from .ui import (
-    section_header, can_edit, fetch_options
+    render_header, can_edit, fetch_options
 )
 
 TABLE = "cliente_familia_descuento"
@@ -15,13 +14,11 @@ EDIT_KEY = "editing_cfd"
 DEL_KEY  = "pending_delete_cfd"
 
 def render_cliente_familia_descuento(supabase):
-    # Cabecera con logo
-    col1, col2 = st.columns([4,1])
-    with col1:
-        section_header("🏷️ Descuentos por Familia",
-                       "Gestión de descuentos aplicados a clientes por familia de productos.")
-    with col2:
-        safe_image("logo_orbe_sinfondo-1536x479.png")
+    # ✅ Cabecera corporativa con logo
+    render_header(
+        "🏷️ Descuentos por Familia",
+        "Gestión de descuentos aplicados a clientes por familia de productos."
+    )
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📖 Instrucciones"])
 
