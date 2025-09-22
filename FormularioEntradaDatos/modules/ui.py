@@ -86,9 +86,11 @@ def apply_custom_css():
     }}
 
     /* Ajustes estéticos sidebar (botones ocupen todo ancho) */
-    section[data-testid="stSidebar"] .stButton>button {{
-        width: 100%;
-        text-align: left;
+    section[data-testid="stSidebar"] .streamlit-expanderHeader {{
+        font-weight: bold;
+        color: #2b6cb0;      /* azul suave */
+        background-color: #f0f4f8;
+        border-radius: 6px;
     }}
     </style>
     """
@@ -154,38 +156,134 @@ def login_sidebar(supabase):
 def menu_sidebar():
     st.sidebar.markdown("## 📂 Navegación")
 
-    opciones = {
-        # Principales
-        "🏠 Inicio": "inicio",
-        "👥 Grupo": "grupo",
-        "🧑‍💼 Trabajador": "trabajador",
-        "📦 Producto": "producto",
-
-        # Clientes y dependencias
-        "👥 Clientes": "cliente",
-        "↳ Condiciones": "cliente_condiciones",
-        "↳ Bancos": "cliente_banco",
-        "↳ Direcciones": "cliente_direccion",
-
-        # Pedido y dependencias
-        "🧾 Pedido": "pedido",
-        "↳ Detalle": "pedido_detalle",
-        "↳ Envío": "pedido_envio",
-        "↳ Estado Pedido": "estadopedido",
-        "↳ Transportista": "transportista",
-        "↳ Método de Envío": "metodoenvio",
-
-        # Otro principal
-        "💳 Forma de Pago": "formapago",
-    }
-
-    if "module_key" not in st.session_state:
+    # ------------------------
+    # Inicio
+    # ------------------------
+    if st.sidebar.button("🏠 Inicio", key="menu_inicio", use_container_width=True):
         st.session_state["module_key"] = "inicio"
 
-    # Usamos botones para que el estilo sea consistente y no haya radios múltiples seleccionadas
-    for label, key in opciones.items():
-        if st.sidebar.button(label, key=f"menu_{key}", use_container_width=True):
-            st.session_state["module_key"] = key
+    # ------------------------
+    # Grupo
+    # ------------------------
+    if st.sidebar.button("👥 Grupo", key="menu_grupo", use_container_width=True):
+        st.session_state["module_key"] = "grupo"
+
+    # ------------------------
+    # Clientes (con submenú)
+    # ------------------------
+    if st.sidebar.button("👤 Clientes", key="menu_cliente", use_container_width=True):
+        st.session_state["module_key"] = "cliente"
+
+    if st.session_state["module_key"] in [
+        "cliente", "cliente_condiciones", "cliente_banco",
+        "cliente_direccion", "cliente_familia_descuento"
+    ]:
+        with st.sidebar.expander("📂 Opciones de Clientes", expanded=True):
+            sub = st.radio(
+                "Submenú Clientes",
+                [
+                    "📋 Datos principales",
+                    "⚖️ Condiciones",
+                    "🏦 Bancos",
+                    "🏠 Direcciones",
+                    "🏷️ Descuentos por Familia"
+                ],
+                index=[
+                    "cliente",
+                    "cliente_condiciones",
+                    "cliente_banco",
+                    "cliente_direccion",
+                    "cliente_familia_descuento"
+                ].index(st.session_state["module_key"]),
+                label_visibility="collapsed"
+            )
+            mapping = {
+                "📋 Datos principales": "cliente",
+                "⚖️ Condiciones": "cliente_condiciones",
+                "🏦 Bancos": "cliente_banco",
+                "🏠 Direcciones": "cliente_direccion",
+                "🏷️ Descuentos por Familia": "cliente_familia_descuento",
+            }
+            st.session_state["module_key"] = mapping[sub]
+
+    # ------------------------
+    # Trabajador
+    # ------------------------
+    if st.sidebar.button("🧑‍💼 Trabajadores", key="menu_trabajador", use_container_width=True):
+        st.session_state["module_key"] = "trabajador"
+
+    # ------------------------
+    # Productos (con submenú)
+    # ------------------------
+    if st.sidebar.button("📦 Productos", key="menu_producto", use_container_width=True):
+        st.session_state["module_key"] = "producto"
+
+    if st.session_state["module_key"] in ["producto", "producto_familia"]:
+        with st.sidebar.expander("📂 Opciones de Productos", expanded=True):
+            sub = st.radio(
+                "Submenú Productos",
+                ["📋 Datos principales", "📚 Familias de Producto"],
+                index=["producto", "producto_familia"].index(st.session_state["module_key"]),
+                label_visibility="collapsed"
+            )
+            mapping = {
+                "📋 Datos principales": "producto",
+                "📚 Familias de Producto": "producto_familia",
+            }
+            st.session_state["module_key"] = mapping[sub]
+
+    # ------------------------
+    # Pedidos (con submenú)
+    # ------------------------
+    if st.sidebar.button("🧾 Pedidos", key="menu_pedido", use_container_width=True):
+        st.session_state["module_key"] = "pedido"
+
+    if st.session_state["module_key"] in [
+        "pedido", "pedido_detalle", "pedido_envio",
+        "estadopedido", "transportista", "metodoenvio"
+    ]:
+        with st.sidebar.expander("📂 Opciones de Pedidos", expanded=True):
+            sub = st.radio(
+                "Submenú Pedidos",
+                [
+                    "📋 Datos principales",
+                    "📑 Detalle",
+                    "🚚 Envío",
+                    "📌 Estado Pedido",
+                    "🚚 Transportista",
+                    "📦 Método de Envío"
+                ],
+                index=[
+                    "pedido",
+                    "pedido_detalle",
+                    "pedido_envio",
+                    "estadopedido",
+                    "transportista",
+                    "metodoenvio"
+                ].index(st.session_state["module_key"]),
+                label_visibility="collapsed"
+            )
+            mapping = {
+                "📋 Datos principales": "pedido",
+                "📑 Detalle": "pedido_detalle",
+                "🚚 Envío": "pedido_envio",
+                "📌 Estado Pedido": "estadopedido",
+                "🚚 Transportista": "transportista",
+                "📦 Método de Envío": "metodoenvio",
+            }
+            st.session_state["module_key"] = mapping[sub]
+
+    # ------------------------
+    # Configuración
+    # ------------------------
+    if st.sidebar.button("⚙️ Configuración", key="menu_config", use_container_width=True):
+        st.session_state["module_key"] = "formapago"
+
+    # ------------------------
+    # CRM
+    # ------------------------
+    if st.sidebar.button("📞 CRM", key="menu_crm", use_container_width=True):
+        st.session_state["module_key"] = "crm_actuacion"
 
     return st.session_state["module_key"]
 
@@ -194,18 +292,21 @@ def menu_sidebar():
 # -----------------------------
 def draw_feed_generic(supabase, tabla, campo_nombre, campo_fecha, campo_id, limit=2):
     try:
-        r = supabase.table(tabla).select("*").order(campo_fecha, desc=True).limit(limit).execute()
+        # Si la tabla no tiene el campo_fecha, ordenamos por id descendente
+        order_field = campo_fecha if campo_fecha else campo_id
+        r = supabase.table(tabla).select("*").order(order_field, desc=True).limit(limit).execute()
         rows = r.data or []
         if not rows:
             return []
         cards = []
         for row in rows:
-            nombre = row.get(campo_nombre, "N/D")
-            fecha  = row.get(campo_fecha, "sin fecha")
+            nombre = row.get(campo_nombre, f"{tabla} #{row.get(campo_id,'?')}")
+            fecha  = row.get(campo_fecha, row.get(campo_id, ""))
             cards.append(f"📰 **{tabla.capitalize()}** → {nombre} ({fecha})")
         return cards
     except Exception as e:
         return [f"⚠️ Error en {tabla}: {e}"]
+
 
 def render_global_feed(supabase, in_sidebar=True, limit=2):
     """
@@ -213,11 +314,17 @@ def render_global_feed(supabase, in_sidebar=True, limit=2):
     - in_sidebar=False -> pinta en columnas dentro de la página (sin título)
     """
     items = [
+        # Originales
         ("grupo", "nombre", "fechaalta", "grupoid"),
         ("trabajador", "nombre", "fechaalta", "trabajadorid"),
         ("cliente", "nombrefiscal", "fechaalta", "clienteid"),
         ("producto", "titulo", "fechaalta", "productoid"),
         ("pedido", "numpedido", "fechapedido", "pedidoid"),
+
+        # Nuevos módulos
+        ("producto_familia", "nombre", "familiaid", "familiaid"),  # no tiene fechaalta → usamos id como fallback
+        ("cliente_familia_descuento", "clienteid", "clienteid", "cliente_familia_descuentoid"),
+        ("crm_actuacion", "descripcion", "fecha", "crm_actuacionid"),
     ]
 
     if in_sidebar:
@@ -228,7 +335,6 @@ def render_global_feed(supabase, in_sidebar=True, limit=2):
                 for c in cards:
                     st.info(c)
     else:
-        # pintar tarjetas en columnas; NO ponemos el título aquí (inicio.py lo controla)
         cols = st.columns(3)
         i = 0
         for tabla, campo, fecha, tid in items:
@@ -237,6 +343,7 @@ def render_global_feed(supabase, in_sidebar=True, limit=2):
                 with cols[i % 3]:
                     st.info(c)
                 i += 1
+
 
 # -----------------------------
 # Helpers de datos/tablas

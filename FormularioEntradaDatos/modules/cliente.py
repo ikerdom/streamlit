@@ -27,12 +27,20 @@ def render_cliente(supabase):
             nombrefiscal    = st.text_input("Nombre Fiscal *", max_chars=200)
             nombrecomercial = st.text_input("Nombre Comercial", max_chars=200)
             cif_nif         = st.text_input("CIF/NIF", max_chars=20)
-            tipo_cliente    = st.selectbox("Tipo de Cliente", ["Centro de formación","Empresa","Distribuidor","Particular"])
+            tipo_cliente    = st.selectbox(
+                "Tipo de Cliente",
+                ["Centro de formación","Empresa","Distribuidor","Particular","Otro"]
+            )
             email           = st.text_input("Email")
             telefono        = st.text_input("Teléfono", max_chars=50)
-            ciudad          = st.text_input("Ciudad", max_chars=100)
-            provincia       = st.text_input("Provincia", max_chars=100)
-            pais            = st.selectbox("País", ["España","Portugal","Francia","Alemania"])
+
+            col1, col2 = st.columns(2)
+            with col1:
+                ciudad = st.text_input("Ciudad", max_chars=100)
+            with col2:
+                provincia = st.text_input("Provincia", max_chars=100)
+
+            pais = st.selectbox("País", ["España","Portugal","Francia","Alemania"])
 
             if st.form_submit_button("➕ Insertar"):
                 if not nombrefiscal:
@@ -124,8 +132,13 @@ def render_cliente(supabase):
                     nc = st.text_input("Nombre Comercial", cur.get("nombrecomercial",""))
                     em = st.text_input("Email", cur.get("email",""))
                     te = st.text_input("Teléfono", cur.get("telefono",""))
-                    ci = st.text_input("Ciudad", cur.get("ciudad",""))
-                    pr = st.text_input("Provincia", cur.get("provincia",""))
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        ci = st.text_input("Ciudad", cur.get("ciudad",""))
+                    with col2:
+                        pr = st.text_input("Provincia", cur.get("provincia",""))
+
                     pa = st.selectbox("País", ["España","Portugal","Francia","Alemania"], index=0)
 
                     if st.form_submit_button("💾 Guardar"):
@@ -164,6 +177,18 @@ def render_cliente(supabase):
 
     # --- Instrucciones
     with tab3:
+        st.subheader("📑 Campos de Cliente")
+        st.markdown("""
+        - **clienteid**: identificador único (autonumérico).  
+        - **grupoid**: referencia al grupo empresarial (FK).  
+        - **nombrefiscal**: razón social del cliente (obligatorio).  
+        - **nombrecomercial**: nombre usado públicamente (opcional).  
+        - **cif_nif**: identificación fiscal.  
+        - **tipocliente**: categoría (Centro de formación, Empresa, Distribuidor, Particular, Otro).  
+        - **email**, **telefono**: datos de contacto.  
+        - **ciudad**, **provincia**, **pais**: localización del cliente.  
+        - **fechaalta**: fecha de alta automática.  
+        """)
         st.subheader("📖 Ejemplos e Instrucciones")
         show_form_images()
         show_csv_images()

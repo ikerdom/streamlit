@@ -2,15 +2,20 @@ import streamlit as st
 import pandas as pd
 from .ui import (
     draw_live_df, can_edit, section_header,
-    fetch_options, show_form_images, show_csv_images
+    fetch_options
 )
 
 TABLE = "clientebanco"
 FIELDS_LIST = ["clientebancoid","clienteid","iban","bic","titular","banco","predeterminado"]
 
 def render_cliente_banco(supabase):
-    section_header("🏦 Bancos Cliente",
-                   "Gestión de cuentas bancarias asociadas a cada cliente.")
+    # Cabecera con logo
+    col1, col2 = st.columns([4,1])
+    with col1:
+        section_header("🏦 Bancos Cliente",
+                       "Gestión de cuentas bancarias asociadas a cada cliente.")
+    with col2:
+        st.image("images/logo_orbe_sinfondo-1536x479.png", use_container_width=True)
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
 
@@ -20,10 +25,10 @@ def render_cliente_banco(supabase):
 
         with st.form("form_clientebanco"):
             cliente = st.selectbox("Cliente *", clientes)
-            iban = st.text_input("IBAN *", max_chars=34)
-            bic = st.text_input("BIC", max_chars=11)
-            titular = st.text_input("Titular")
-            banco = st.text_input("Banco")
+            iban = st.text_input("IBAN *", max_chars=34, placeholder="ES9820385778983000760236")
+            bic = st.text_input("BIC", max_chars=11, placeholder="BANKESMMXXX")
+            titular = st.text_input("Titular", placeholder="Nombre del titular de la cuenta")
+            banco = st.text_input("Banco", placeholder="Entidad bancaria")
             predeterminado = st.checkbox("Predeterminado", value=False)
 
             if st.form_submit_button("➕ Insertar"):
@@ -46,19 +51,21 @@ def render_cliente_banco(supabase):
         df = draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
 
         if not df.empty:
+            # Reemplazar clienteid por nombre fiscal
+            clientes_map = {c["clienteid"]: c["nombrefiscal"]
+                            for c in supabase.table("cliente")
+                            .select("clienteid,nombrefiscal").execute().data}
+            df["cliente"] = df["clienteid"].map(clientes_map)
+
             st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
 
-            header = st.columns([0.5,0.5,2,2,2,2])
-            header[0].markdown("**✏️**")
-            header[1].markdown("**🗑️**")
-            header[2].markdown("**IBAN**")
-            header[3].markdown("**Titular**")
-            header[4].markdown("**Banco**")
-            header[5].markdown("**Predeterminado**")
+            header = st.columns([0.5,0.5,2,2,2,2,2])
+            for h, txt in zip(header, ["✏️","🗑️","Cliente","IBAN","Titular","Banco","Predet."]):
+                h.markdown(f"**{txt}**")
 
             for _, row in df.iterrows():
                 bid = int(row["clientebancoid"])
-                cols = st.columns([0.5,0.5,2,2,2,2])
+                cols = st.columns([0.5,0.5,2,2,2,2,2])
 
                 # Editar
                 with cols[0]:
@@ -76,10 +83,11 @@ def render_cliente_banco(supabase):
                     else:
                         st.button("🗑️", key=f"ask_del_{bid}", disabled=True)
 
-                cols[2].write(row.get("iban",""))
-                cols[3].write(row.get("titular",""))
-                cols[4].write(row.get("banco",""))
-                cols[5].write("✅" if row.get("predeterminado") else "—")
+                cols[2].write(row.get("cliente",""))
+                cols[3].write(row.get("iban",""))
+                cols[4].write(row.get("titular",""))
+                cols[5].write(row.get("banco",""))
+                cols[6].write("✅" if row.get("predeterminado") else "—")
 
             # Confirmar borrado
             if st.session_state.get("pending_delete"):
@@ -105,6 +113,7 @@ def render_cliente_banco(supabase):
                 st.markdown("---"); st.subheader(f"Editar Cuenta #{eid}")
                 with st.form("edit_banco"):
                     iban = st.text_input("IBAN", cur.get("iban",""))
+                    bic = st.text_input("BIC", cur.get("bic",""))
                     titular = st.text_input("Titular", cur.get("titular",""))
                     banco = st.text_input("Banco", cur.get("banco",""))
                     pred = st.checkbox("Predeterminado", value=cur.get("predeterminado",False))
@@ -112,6 +121,7 @@ def render_cliente_banco(supabase):
                         if can_edit():
                             supabase.table(TABLE).update({
                                 "iban": iban,
+                                "bic": bic,
                                 "titular": titular,
                                 "banco": banco,
                                 "predeterminado": pred
@@ -138,7 +148,19 @@ def render_cliente_banco(supabase):
 
     # --- Instrucciones
     with tab3:
-        st.subheader("📖 Ejemplos CSV")
-        st.code("clienteid,iban,bic,titular,banco,predeterminado\n1,ES9820385778983000760236,BKTRSESMM,Juan Pérez,Banco Santander,true", language="csv")
-        show_form_images()
-        show_csv_images()
+        st.subheader("📑 Campos de Bancos Cliente")
+        st.markdown("""
+        - **clientebancoid** → Identificador único del registro.  
+        - **clienteid** → Cliente al que pertenece la cuenta bancaria.  
+        - **iban** → Número IBAN (obligatorio).  
+        - **bic** → Código BIC/SWIFT de la entidad.  
+        - **titular** → Nombre del titular de la cuenta.  
+        - **banco** → Nombre de la entidad bancaria.  
+        - **predeterminado** → Si es la cuenta principal de ese cliente (true/false).  
+        """)
+        st.subheader("📖 Ejemplo CSV")
+        st.code(
+            "clienteid,iban,bic,titular,banco,predeterminado\n"
+            "1,ES9820385778983000760236,BKTRSESMM,Juan Pérez,Banco Santander,true",
+            language="csv"
+        )

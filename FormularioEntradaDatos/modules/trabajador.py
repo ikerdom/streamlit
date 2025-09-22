@@ -1,77 +1,90 @@
 import streamlit as st
 import pandas as pd
 from .ui import (
-    section_header, draw_live_df, can_edit,
-    show_form_images, show_csv_images, draw_feed_generic
+    section_header, draw_live_df, can_edit, draw_feed_generic
 )
 
 TABLE = "trabajador"
 FIELDS_LIST = ["trabajadorid","codigoempleado","nombre","email","telefono","activo","fechaalta"]
 
 def render_trabajador(supabase):
-    # Cabecera + descripción + mini feed
-    section_header("👨‍💼 Gestión de Trabajadores", "Altas y gestión de empleados.")
+    # Cabecera con logo a la derecha + mini feed
+    col1, col2 = st.columns([4,1])
+    with col1:
+        section_header("👨‍💼 Gestión de Trabajadores", "Altas y gestión de empleados.")
+    with col2:
+        st.image("images/logo_orbe_sinfondo-1536x479.png", use_container_width=True)
+
+    # Mini feed
     draw_feed_generic(supabase, TABLE, "nombre", "fechaalta", "trabajadorid")
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
 
-    # --- Formulario
+    # -------------------------------
+    # TAB 1: Formulario
+    # -------------------------------
     with tab1:
-        st.subheader("Añadir Trabajador")
+        st.subheader("Añadir / Seleccionar Trabajador")
+
+        # Lista de trabajadores existentes
+        trabajadores = supabase.table(TABLE).select("trabajadorid,codigoempleado,nombre").execute().data or []
+        opciones = [f"{t['codigoempleado']} - {t['nombre']}" for t in trabajadores]
+
+        # 👉 Primero EXISTENTE, luego NUEVO (como en Grupo)
+        modo = st.radio("¿Qué deseas hacer?", ["👤 Seleccionar existente", "➕ Nuevo trabajador"])
+
         with st.form("form_trabajador"):
-            codigo = st.text_input("Código Empleado *", max_chars=30)
-            nombre = st.text_input("Nombre *", max_chars=150)
-            email  = st.text_input("Email", max_chars=150)
-            tel    = st.text_input("Teléfono", max_chars=50)
-            if st.form_submit_button("➕ Insertar"):
-                if not codigo or not nombre:
-                    st.error("❌ Código y Nombre obligatorios")
+            if modo == "👤 Seleccionar existente":
+                seleccionado = st.selectbox("Trabajador existente", opciones)
+                codigo = None
+                nombre = None
+                email  = None
+                tel    = None
+            else:
+                codigo = st.text_input("Código Empleado *", max_chars=30)
+                nombre = st.text_input("Nombre *", max_chars=150)
+                email  = st.text_input("Email", max_chars=150)
+                tel    = st.text_input("Teléfono", max_chars=50)
+
+            if st.form_submit_button("💾 Guardar"):
+                if modo == "➕ Nuevo trabajador":
+                    if not codigo or not nombre:
+                        st.error("❌ Código y Nombre obligatorios")
+                    else:
+                        supabase.table(TABLE).insert({
+                            "codigoempleado": codigo,
+                            "nombre": nombre,
+                            "email": email,
+                            "telefono": tel
+                        }).execute()
+                        st.success("✅ Trabajador insertado")
+                        st.rerun()
                 else:
-                    supabase.table(TABLE).insert({
-                        "codigoempleado": codigo,
-                        "nombre": nombre,
-                        "email": email,
-                        "telefono": tel
-                    }).execute()
-                    st.success("✅ Trabajador insertado")
-                    st.rerun()
+                    st.info("ℹ️ Seleccionaste un trabajador existente, no es necesario guardar.")
 
         st.markdown("#### 📑 Tabla en vivo con acciones")
         df = draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
 
+        # --- Acciones de edición/borrado (igual que antes) ---
         if not df.empty:
             st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
-
             header = st.columns([0.5,0.5,2,2,2,2,1])
-            header[0].markdown("**✏️**")
-            header[1].markdown("**🗑️**")
-            header[2].markdown("**Código**")
-            header[3].markdown("**Nombre**")
-            header[4].markdown("**Email**")
-            header[5].markdown("**Teléfono**")
-            header[6].markdown("**Activo**")
+            for c, t in zip(header, ["✏️","🗑️","Código","Nombre","Email","Teléfono","Activo"]):
+                c.markdown(f"**{t}**")
 
             for _, row in df.iterrows():
                 tid = int(row["trabajadorid"])
                 cols = st.columns([0.5,0.5,2,2,2,2,1])
-
                 # Editar
                 with cols[0]:
-                    if can_edit():
-                        if st.button("✏️", key=f"tra_edit_{tid}"):
-                            st.session_state["editing"] = tid
-                            st.rerun()
-                    else:
-                        st.button("✏️", key=f"tra_edit_{tid}", disabled=True)
-
+                    if can_edit() and st.button("✏️", key=f"tra_edit_{tid}"):
+                        st.session_state["editing"] = tid
+                        st.rerun()
                 # Borrar
                 with cols[1]:
-                    if can_edit():
-                        if st.button("🗑️", key=f"tra_delask_{tid}"):
-                            st.session_state["pending_delete"] = tid
-                            st.rerun()
-                    else:
-                        st.button("🗑️", key=f"tra_delask_{tid}", disabled=True)
+                    if can_edit() and st.button("🗑️", key=f"tra_delask_{tid}"):
+                        st.session_state["pending_delete"] = tid
+                        st.rerun()
 
                 cols[2].write(row.get("codigoempleado",""))
                 cols[3].write(row.get("nombre",""))
@@ -118,10 +131,10 @@ def render_trabajador(supabase):
                             st.success("✅ Trabajador actualizado")
                             st.session_state["editing"] = None
                             st.rerun()
-                        else:
-                            st.error("⚠️ Inicia sesión para editar registros.")
 
-    # --- CSV
+    # -------------------------------
+    # TAB 2: CSV
+    # -------------------------------
     with tab2:
         st.subheader("Importar desde CSV")
         st.caption("Columnas: codigoempleado,nombre,email,telefono")
@@ -133,12 +146,25 @@ def render_trabajador(supabase):
                 supabase.table(TABLE).insert(df_csv.to_dict(orient="records")).execute()
                 st.success(f"✅ Insertados {len(df_csv)}")
                 st.rerun()
-
-        st.markdown("#### 📑 Tabla en vivo")
         draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
 
-    # --- Instrucciones
+    # -------------------------------
+    # TAB 3: Instrucciones
+    # -------------------------------
     with tab3:
-        st.subheader("📖 Ejemplos e Instrucciones")
-        show_form_images()
-        show_csv_images()
+        st.subheader("📑 Campos de Trabajador")
+        st.markdown("""
+        - **codigoempleado** → Identificador único interno del trabajador.  
+        - **nombre** → Nombre completo del empleado.  
+        - **email** → Correo de contacto laboral.  
+        - **telefono** → Teléfono de contacto.  
+        - **activo** → Indica si el trabajador sigue en la empresa.  
+        - **fechaalta** → Fecha de alta en el sistema.  
+        """)    
+        st.subheader("📖 Ejemplo CSV")
+        st.code(
+            "codigoempleado,nombre,email,telefono\n"
+            "EMP001,María López,maria@example.com,600123456\n"
+            "EMP002,Carlos García,carlos@example.com,600654321",
+            language="csv"
+        )

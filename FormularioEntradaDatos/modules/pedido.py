@@ -8,7 +8,12 @@ TABLE = "pedido"
 FIELDS_LIST = ["pedidoid","clienteid","trabajadorid","numpedido","fechapedido","total"]
 
 def render_pedido(supabase):
-    section_header("🧾 Gestión de Pedidos", "Alta y administración de pedidos de clientes.")
+    # Cabecera con logo
+    col1, col2 = st.columns([4,1])
+    with col1:
+        section_header("🧾 Gestión de Pedidos", "Alta y administración de pedidos de clientes.")
+    with col2:
+        st.image("images/logo_orbe_sinfondo-1536x479.png", use_container_width=True)
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
 
@@ -48,33 +53,24 @@ def render_pedido(supabase):
             st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
 
             header = st.columns([0.5,0.5,2,2,2,1,1])
-            header[0].markdown("**✏️**")
-            header[1].markdown("**🗑️**")
-            header[2].markdown("**ClienteID**")
-            header[3].markdown("**TrabajadorID**")
-            header[4].markdown("**NumPedido**")
-            header[5].markdown("**Fecha**")
-            header[6].markdown("**Total**")
+            for h, txt in zip(header, ["✏️","🗑️","ClienteID","TrabajadorID","NumPedido","Fecha","Total"]):
+                h.markdown(f"**{txt}**")
 
             for _, row in df.iterrows():
                 pid = int(row["pedidoid"])
                 cols = st.columns([0.5,0.5,2,2,2,1,1])
 
-                # Editar
                 with cols[0]:
                     if can_edit():
                         if st.button("✏️", key=f"edit_{pid}"):
-                            st.session_state["editing"] = pid
-                            st.rerun()
+                            st.session_state["editing"] = pid; st.rerun()
                     else:
                         st.button("✏️", key=f"edit_{pid}", disabled=True)
 
-                # Borrar
                 with cols[1]:
                     if can_edit():
                         if st.button("🗑️", key=f"ask_del_{pid}"):
-                            st.session_state["pending_delete"] = pid
-                            st.rerun()
+                            st.session_state["pending_delete"] = pid; st.rerun()
                     else:
                         st.button("🗑️", key=f"ask_del_{pid}", disabled=True)
 
@@ -138,8 +134,18 @@ def render_pedido(supabase):
 
     # --- Instrucciones
     with tab3:
-        st.subheader("📖 Instrucciones")
-        st.markdown("- **Número de pedido** es obligatorio.\n"
-                    "- **Cliente** y **Trabajador** deben existir previamente.\n"
-                    "- **Fecha** debe tener formato válido.\n"
-                    "- **Total** debe ser numérico.")
+        st.subheader("📑 Campos e Instrucciones de Pedido")
+        st.markdown("""
+        - **pedidoid** → Identificador único del pedido.  
+        - **clienteid** → Cliente asociado (FK).  
+        - **trabajadorid** → Trabajador responsable (FK).  
+        - **numpedido** → Número de pedido (obligatorio).  
+        - **fechapedido** → Fecha de creación.  
+        - **total** → Importe total del pedido.  
+
+        ⚠️ Reglas:
+        - El **Número de pedido** es obligatorio y debe ser único.  
+        - **Cliente** y **Trabajador** deben existir previamente.  
+        - **Fecha** debe tener un formato válido (date).  
+        - **Total** debe ser un valor numérico positivo.  
+        """)

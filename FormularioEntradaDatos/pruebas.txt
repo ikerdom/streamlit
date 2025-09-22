@@ -1,0 +1,51 @@
+Listado de clientes con condiciones económicas
+
+SELECT c.nombrefiscal,
+       cc.limitecredito,
+       cc.descuentocomercial,
+       cc.diaspago
+FROM cliente c
+JOIN clientecondiciones cc ON c.clienteid = cc.clienteid;
+
+
+Pedidos con totales y nombre del cliente
+
+SELECT p.numpedido,
+       c.nombrefiscal,
+       p.importebruto, p.importedescuento, p.importetotal
+FROM pedido p
+JOIN cliente c ON p.clienteid = c.clienteid;
+
+
+Detalle de pedido (líneas con producto)
+
+SELECT p.numpedido,
+       pr.titulo,
+       pd.cantidad, pd.preciounitario, pd.descuentopct,
+       pd.importelineatotal
+FROM pedidodetalle pd
+JOIN pedido p ON p.pedidoid = pd.pedidoid
+JOIN producto pr ON pr.productoid = pd.productoid
+ORDER BY p.numpedido, pd.linea;
+
+
+Pedidos + dirección de envío
+
+SELECT p.numpedido,
+       pe.nombredestinatario, pe.direccion1, pe.ciudad,
+       t.nombre AS transportista, m.nombre AS metodo,
+       pe.costeenvio, pe.numerobultos
+FROM pedidoenvio pe
+JOIN pedido p ON p.pedidoid = pe.pedidoid
+LEFT JOIN transportista t ON t.transportistaid = pe.transportistaid
+LEFT JOIN metodoenvio m ON m.metodoenvioid = pe.metodoenvioid;
+
+
+Clientes y sus pedidos
+
+SELECT c.nombrefiscal,
+       COUNT(p.pedidoid) AS num_pedidos,
+       SUM(p.importetotal) AS total_facturado
+FROM cliente c
+LEFT JOIN pedido p ON p.clienteid = c.clienteid
+GROUP BY c.nombrefiscal;
