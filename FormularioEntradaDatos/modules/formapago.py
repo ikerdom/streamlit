@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 from .ui import section_header, can_edit
+from .ui import safe_image
 
 TABLE = "formapago"
 FIELDS_LIST = ["formapagoid", "nombre"]
@@ -16,7 +17,7 @@ def render_forma_pago(supabase):
         section_header("💳 Catálogo: Formas de Pago",
                        "Define los métodos de pago disponibles para los pedidos (ej. transferencia, tarjeta, etc.).")
     with col2:
-        st.image("images/logo_orbe_sinfondo-1536x479.png", use_container_width=True)
+        safe_image("logo_orbe_sinfondo-1536x479.png")
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📖 Instrucciones"])
 

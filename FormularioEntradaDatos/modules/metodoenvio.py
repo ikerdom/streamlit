@@ -2,6 +2,7 @@
 import streamlit as st
 import pandas as pd
 from .ui import section_header, draw_live_df, can_edit
+from .ui import safe_image
 
 TABLE = "metodoenvio"
 FIELDS_LIST = ["metodoenvioid", "nombre", "descripcion"]
@@ -16,7 +17,8 @@ def render_metodo_envio(supabase):
         section_header("📦 Catálogo: Métodos de Envío",
                        "Define los métodos de envío disponibles (urgente, estándar, etc.).")
     with col2:
-        st.image("images/logo_orbe_sinfondo-1536x479.png", use_container_width=True)
+        
+        safe_image("logo_orbe_sinfondo-1536x479.png")
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📖 Instrucciones"])
 

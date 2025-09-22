@@ -1,4 +1,6 @@
 import streamlit as st
+from .ui import safe_image
+
 import pandas as pd
 from .ui import (
     draw_live_df, can_edit, section_header,
@@ -15,7 +17,8 @@ def render_cliente_banco(supabase):
         section_header("🏦 Bancos Cliente",
                        "Gestión de cuentas bancarias asociadas a cada cliente.")
     with col2:
-        st.image("images/logo_orbe_sinfondo-1536x479.png", use_container_width=True)
+        safe_image("logo_orbe_sinfondo-1536x479.png")
+
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
 

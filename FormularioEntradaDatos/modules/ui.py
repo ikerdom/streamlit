@@ -96,6 +96,35 @@ def apply_custom_css():
     """
     st.markdown(css, unsafe_allow_html=True)
 
+def safe_image(relative_path, use_container_width=True, caption=None, width=None):
+    """
+    Muestra una imagen desde la carpeta /images de forma segura:
+    - Usa rutas absolutas (no depende de dónde ejecutes la app).
+    - Si la imagen no existe → muestra un warning.
+    - Si no puede cargar → fallback a texto.
+    """
+    # Carpeta base de /images (un nivel arriba de modules/)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    img_path = os.path.join(base_dir, "..", "images", relative_path)
+
+    if os.path.exists(img_path):
+        try:
+            st.image(img_path,
+                     use_container_width=use_container_width,
+                     caption=caption,
+                     width=width)
+        except Exception as e:
+            try:
+                # fallback base64 en caso de que falle st.image
+                with open(img_path, "rb") as f:
+                    encoded = base64.b64encode(f.read()).decode()
+                st.markdown(f"![img](data:image/png;base64,{encoded})")
+            except:
+                st.warning(f"⚠️ No se pudo cargar la imagen {relative_path} ({e})")
+    else:
+        st.warning(f"⚠️ Imagen no encontrada: {relative_path}")
+
+
 # -----------------------------
 # Sidebar helpers (logo + login + menu)
 # -----------------------------

@@ -2,7 +2,7 @@
 import streamlit as st
 import pandas as pd
 from .ui import section_header, draw_live_df, can_edit
-
+from .ui import safe_image
 TABLE = "estadopedido"
 FIELDS_LIST = ["estadopedidoid", "nombre", "descripcion"]
 
@@ -17,7 +17,7 @@ def render_estado_pedido(supabase):
     with col1:
         section_header("📌 Estados de Pedido", "Catálogo de estados posibles de un pedido.")
     with col2:
-        st.image("images/logo_orbe_sinfondo-1536x479.png", use_container_width=True)
+        safe_image("logo_orbe_sinfondo-1536x479.png")
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📖 Instrucciones"])
 

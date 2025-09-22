@@ -2,7 +2,7 @@
 import streamlit as st
 import pandas as pd
 from .ui import draw_live_df, can_edit, section_header
-
+from .ui import safe_image
 TABLE = "producto_familia"
 FIELDS_LIST = ["familiaid", "nombre"]
 
@@ -16,7 +16,7 @@ def render_producto_familia(supabase):
         section_header("📚 Familias de Producto",
                        "Catálogo de familias de productos para organizar el inventario.")
     with col2:
-        st.image("images/logo_orbe_sinfondo-1536x479.png", use_container_width=True)
+        safe_image("logo_orbe_sinfondo-1536x479.png")
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
 

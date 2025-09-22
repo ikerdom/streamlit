@@ -1,6 +1,7 @@
 # modules/crm_actuacion.py
 import streamlit as st
 import pandas as pd
+from .ui import safe_image
 from .ui import (
     section_header, can_edit, fetch_options
 )
@@ -24,7 +25,7 @@ def render_crm_actuacion(supabase):
         section_header("📞 CRM Actuaciones",
                        "Registro de llamadas, emails, visitas o incidencias con clientes o trabajadores.")
     with col2:
-        st.image("images/logo_orbe_sinfondo-1536x479.png", use_container_width=True)
+        safe_image("logo_orbe_sinfondo-1536x479.png")
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📖 Instrucciones"])
 

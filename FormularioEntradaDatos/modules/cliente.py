@@ -1,5 +1,8 @@
 import streamlit as st
+
+
 import pandas as pd
+from .ui import safe_image
 from .ui import (
     draw_live_df, can_edit, show_form_images, show_csv_images,
     fetch_options, section_header
@@ -12,7 +15,11 @@ FIELDS_LIST = [
 ]
 
 def render_cliente(supabase):
-    section_header("👥 Gestión de Clientes", "Módulo para dar de alta, administrar y editar clientes.")
+    col1, col2 = st.columns([4,1])
+    with col1:
+        section_header("👥 Gestión de Clientes", "Módulo para dar de alta, administrar y editar clientes.")
+    with col2:
+        safe_image("logo_orbe_sinfondo-1536x479.png", use_container_width=True)
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
 

@@ -3,7 +3,7 @@ import pandas as pd
 from .ui import (
     section_header, draw_live_df, can_edit, draw_feed_generic
 )
-
+from .ui import safe_image
 TABLE = "producto"
 FIELDS_LIST = [
     "productoid","sku","isbn13","ean13","titulo","autor","coleccion","edicion",
@@ -17,7 +17,7 @@ def render_producto(supabase):
     with col1:
         section_header("📚 Gestión de Productos", "Libros y materiales en catálogo.")
     with col2:
-        st.image("images/logo_orbe_sinfondo-1536x479.png", use_container_width=True)
+        safe_image("logo_orbe_sinfondo-1536x479.png")
 
     draw_feed_generic(supabase, TABLE, "titulo", "fechaalta", "productoid")
 

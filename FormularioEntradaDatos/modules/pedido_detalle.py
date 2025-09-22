@@ -4,6 +4,8 @@ from .ui import (
     draw_live_df, can_edit, section_header,
     fetch_options
 )
+from .ui import safe_image
+
 
 TABLE = "pedidodetalle"
 FIELDS_LIST = [
@@ -19,7 +21,8 @@ def render_pedido_detalle(supabase):
         section_header("📦 Detalle de Pedido",
                        "Gestión de líneas de detalle asociadas a cada pedido con importes calculados.")
     with col2:
-        st.image("images/logo_orbe_sinfondo-1536x479.png", use_container_width=True)
+        
+        safe_image("logo_orbe_sinfondo-1536x479.png")
 
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
 

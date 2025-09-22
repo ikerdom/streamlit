@@ -3,7 +3,7 @@ import pandas as pd
 from .ui import (
     section_header, draw_live_df, can_edit, draw_feed_generic
 )
-
+from .ui import safe_image
 TABLE = "trabajador"
 FIELDS_LIST = ["trabajadorid","codigoempleado","nombre","email","telefono","activo","fechaalta"]
 
@@ -13,7 +13,7 @@ def render_trabajador(supabase):
     with col1:
         section_header("👨‍💼 Gestión de Trabajadores", "Altas y gestión de empleados.")
     with col2:
-        st.image("images/logo_orbe_sinfondo-1536x479.png", use_container_width=True)
+        safe_image("logo_orbe_sinfondo-1536x479.png")
 
     # Mini feed
     draw_feed_generic(supabase, TABLE, "nombre", "fechaalta", "trabajadorid")

@@ -4,6 +4,7 @@ from .ui import (
     draw_live_df, can_edit, section_header,
     fetch_options
 )
+from .ui import safe_image
 
 TABLE = "clientedireccion"
 FIELDS_LIST = [
@@ -19,8 +20,7 @@ def render_cliente_direccion(supabase):
         section_header("📍 Direcciones Cliente",
                        "Gestión de direcciones asociadas a cada cliente (facturación, envío, etc.).")
     with col2:
-        st.image("images/logo_orbe_sinfondo-1536x479.png", use_container_width=True)
-
+        safe_image("logo_orbe_sinfondo-1536x479.png")
     tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
 
     # --- TAB 1: Formulario

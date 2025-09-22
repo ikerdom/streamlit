@@ -1,5 +1,6 @@
 import streamlit as st
 from .ui import render_global_feed
+from .ui import safe_image
 
 def render_inicio(supabase):
     # Cabecera con título a la izquierda y logo a la derecha
@@ -8,8 +9,7 @@ def render_inicio(supabase):
         st.title("🏠 ERP Orbe - Inicio")
         st.caption("Aplicación corporativa desarrollada para **EnteNova Gnosis**")
     with col2:
-        st.image("images/logo_orbe_sinfondo-1536x479.png", 
-                 use_container_width=True)
+        safe_image("logo_orbe_sinfondo-1536x479.png")
 
     st.markdown("---")
 
