@@ -1,7 +1,7 @@
 # modules/grupo.py
 import streamlit as st
 import pandas as pd
-from .ui import render_header, draw_live_df, can_edit, fetch_options
+from .ui import render_header, can_edit, fetch_options
 
 TABLE = "grupo"
 FIELDS_LIST = ["grupoid", "nombre", "cif", "notas", "fechaalta"]
@@ -13,10 +13,10 @@ def render_grupo(supabase):
         "Sección para organizar clientes por grupos empresariales."
     )
 
-    tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📑 Instrucciones"])
+    tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📑 Instrucciones"])
 
     # -------------------------------
-    # TAB 1: Formulario
+    # TAB 1: Formulario + Tabla
     # -------------------------------
     with tab1:
         st.subheader("Alta o edición de Grupo")
@@ -61,80 +61,98 @@ def render_grupo(supabase):
                         st.success(f"✅ Grupo '{nombre}' actualizado")
                     st.rerun()
 
-        st.markdown("#### 📑 Tabla en vivo con acciones")
-        df = draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
+        # -------------------------------
+        # 📑 Tabla en vivo con filtros
+        # -------------------------------
+        st.markdown("### 📑 Tabla en vivo")
 
-        # --- Acciones de edición/borrado ---
+        df = pd.DataFrame(supabase.table(TABLE).select("*").execute().data)
+
         if not df.empty:
-            st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
-            header = st.columns([0.5, 0.5, 3, 2, 3, 2])
-            for c, t in zip(header, ["✏️", "🗑️", "Nombre", "CIF", "Notas", "Fecha Alta"]):
-                c.markdown(f"**{t}**")
+            with st.expander("🔎 Buscar / Filtrar grupos"):
+                campo = st.selectbox("Selecciona un campo", df.columns)
+                valor = st.text_input("Valor a buscar", key="filtro_grupo")
+                orden = st.radio("Ordenar por", ["Ascendente", "Descendente"], horizontal=True, key="orden_grupo")
 
-            for _, row in df.iterrows():
-                gid = int(row["grupoid"])
-                cols = st.columns([0.5, 0.5, 3, 2, 3, 2])
+                if valor:
+                    df = df[df[campo].astype(str).str.contains(valor, case=False, na=False)]
 
-                # --- Editar
-                with cols[0]:
-                    if can_edit():
-                        if st.button("✏️", key=f"grupo_edit_{gid}"):
-                            st.session_state["editing_grupo"] = gid
-                            st.rerun()
-                    else:
-                        st.button("✏️", key=f"grupo_edit_{gid}", disabled=True)
+                if orden == "Ascendente":
+                    df = df.sort_values(by=campo, ascending=True)
+                else:
+                    df = df.sort_values(by=campo, ascending=False)
 
-                # --- Borrar
-                with cols[1]:
-                    if can_edit():
-                        if st.button("🗑️", key=f"grupo_delask_{gid}"):
-                            st.session_state["pending_delete_grupo"] = gid
-                            st.rerun()
-                    else:
-                        st.button("🗑️", key=f"grupo_delask_{gid}", disabled=True)
+            st.dataframe(df, use_container_width=True)
 
-                cols[2].write(row.get("nombre", ""))
-                cols[3].write(row.get("cif", ""))
-                cols[4].write(row.get("notas", ""))
-                cols[5].write(str(row.get("fechaalta", "")))
+            # -------------------------------
+            # ⚙️ Expander de opciones avanzadas (solo sesión iniciada)
+            # -------------------------------
+            with st.expander("⚙️ Opciones avanzadas (requiere sesión)"):
+                if not can_edit():
+                    st.warning("⚠️ Inicia sesión para acceder a estas opciones.")
+                else:
+                    st.success("✅ Opciones habilitadas para edición/borrado")
 
-            # Confirmar borrado
-            if st.session_state.get("pending_delete_grupo"):
-                did = st.session_state["pending_delete_grupo"]
-                st.markdown("---")
-                st.error(f"⚠️ ¿Seguro que quieres eliminar el grupo #{did}?")
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("✅ Confirmar", key="grupo_confirm_del"):
-                        supabase.table(TABLE).delete().eq("grupoid", did).execute()
-                        st.success("✅ Grupo eliminado")
-                        st.session_state["pending_delete_grupo"] = None
-                        st.rerun()
-                with c2:
-                    if st.button("❌ Cancelar", key="grupo_cancel_del"):
-                        st.session_state["pending_delete_grupo"] = None
-                        st.rerun()
+                    # Acciones de edición/borrado como antes
+                    header = st.columns([0.5, 0.5, 3, 2, 3, 2])
+                    for c, t in zip(header, ["✏️", "🗑️", "Nombre", "CIF", "Notas", "Fecha Alta"]):
+                        c.markdown(f"**{t}**")
 
-            # Edición inline
-            if st.session_state.get("editing_grupo"):
-                eid = st.session_state["editing_grupo"]
-                cur = df[df["grupoid"] == eid].iloc[0].to_dict()
-                st.markdown("---")
-                st.subheader(f"Editar Grupo #{eid}")
-                with st.form("edit_grupo"):
-                    nom = st.text_input("Nombre", cur.get("nombre", ""))
-                    ci  = st.text_input("CIF", cur.get("cif", ""))
-                    no  = st.text_area("Notas", cur.get("notas", ""))
-                    if st.form_submit_button("💾 Guardar cambios"):
-                        if can_edit():
-                            supabase.table(TABLE).update({
-                                "nombre": nom,
-                                "cif": ci,
-                                "notas": no
-                            }).eq("grupoid", eid).execute()
-                            st.success("✅ Grupo actualizado")
-                            st.session_state["editing_grupo"] = None
-                            st.rerun()
+                    for _, row in df.iterrows():
+                        gid = int(row["grupoid"])
+                        cols = st.columns([0.5, 0.5, 3, 2, 3, 2])
+
+                        # --- Editar
+                        with cols[0]:
+                            if st.button("✏️", key=f"grupo_edit_{gid}"):
+                                st.session_state["editing_grupo"] = gid
+                                st.rerun()
+
+                        # --- Borrar
+                        with cols[1]:
+                            if st.button("🗑️", key=f"grupo_delask_{gid}"):
+                                st.session_state["pending_delete_grupo"] = gid
+                                st.rerun()
+
+                        cols[2].write(row.get("nombre", ""))
+                        cols[3].write(row.get("cif", ""))
+                        cols[4].write(row.get("notas", ""))
+                        cols[5].write(str(row.get("fechaalta", "")))
+
+                    # Confirmación de borrado
+                    if st.session_state.get("pending_delete_grupo"):
+                        did = st.session_state["pending_delete_grupo"]
+                        st.error(f"⚠️ ¿Seguro que quieres eliminar el grupo #{did}?")
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            if st.button("✅ Confirmar borrado"):
+                                supabase.table(TABLE).delete().eq("grupoid", did).execute()
+                                st.success("✅ Grupo eliminado")
+                                st.session_state["pending_delete_grupo"] = None
+                                st.rerun()
+                        with c2:
+                            if st.button("❌ Cancelar borrado"):
+                                st.session_state["pending_delete_grupo"] = None
+                                st.rerun()
+
+                    # Edición inline
+                    if st.session_state.get("editing_grupo"):
+                        eid = st.session_state["editing_grupo"]
+                        cur = df[df["grupoid"] == eid].iloc[0].to_dict()
+                        st.subheader(f"✏️ Editar Grupo #{eid}")
+                        with st.form("edit_grupo"):
+                            nom = st.text_input("Nombre", cur.get("nombre", ""))
+                            ci  = st.text_input("CIF", cur.get("cif", ""))
+                            no  = st.text_area("Notas", cur.get("notas", ""))
+                            if st.form_submit_button("💾 Guardar cambios"):
+                                supabase.table(TABLE).update({
+                                    "nombre": nom,
+                                    "cif": ci,
+                                    "notas": no
+                                }).eq("grupoid", eid).execute()
+                                st.success("✅ Grupo actualizado")
+                                st.session_state["editing_grupo"] = None
+                                st.rerun()
 
     # -------------------------------
     # TAB 2: CSV
@@ -150,7 +168,6 @@ def render_grupo(supabase):
                 supabase.table(TABLE).insert(df_csv.to_dict(orient="records")).execute()
                 st.success(f"✅ Insertados {len(df_csv)}")
                 st.rerun()
-        draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
 
     # -------------------------------
     # TAB 3: Instrucciones

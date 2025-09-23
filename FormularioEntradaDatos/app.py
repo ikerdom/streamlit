@@ -13,6 +13,8 @@ from modules.ui import (
 # Importa tus módulos
 from modules.inicio import render_inicio
 from modules.crm_actuacion import render_crm_actuacion
+from modules.forma_facturacion import render_forma_facturacion
+
 
 from modules.grupo import render_grupo
 from modules.cliente import render_cliente
@@ -88,3 +90,5 @@ elif module_key == "metodoenvio":
     render_metodo_envio(supabase)
 elif module_key == "crm_actuacion":
     render_crm_actuacion(supabase)
+elif module_key == "forma_facturacion":
+    render_forma_facturacion(supabase)

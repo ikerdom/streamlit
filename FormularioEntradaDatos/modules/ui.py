@@ -277,7 +277,9 @@ def menu_sidebar():
     if st.sidebar.button("💳 Formas de Pago", key="menu_formapago", use_container_width=True):
         st.session_state["module_key"] = "formapago"
 
-
+    # Formas de Facturación
+    if st.sidebar.button("🧾 Formas de Facturación", key="menu_formafacturacion", use_container_width=True):
+        st.session_state["module_key"] = "forma_facturacion"
 
     # CRM
     if st.sidebar.button("📞 CRM", key="menu_crm", use_container_width=True):

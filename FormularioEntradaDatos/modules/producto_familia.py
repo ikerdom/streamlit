@@ -1,6 +1,7 @@
+# modules/producto_familia.py
 import streamlit as st
 import pandas as pd
-from .ui import draw_live_df, can_edit, render_header
+from .ui import render_header, can_edit
 
 TABLE = "producto_familia"
 FIELDS_LIST = ["familiaid", "nombre"]
@@ -9,18 +10,19 @@ EDIT_KEY = "editing_pf"
 DEL_KEY  = "pending_delete_pf"
 
 def render_producto_familia(supabase):
-    # ✅ Cabecera unificada
+    # ✅ Cabecera
     render_header(
         "📚 Familias de Producto",
         "Catálogo de familias de productos para organizar el inventario."
     )
 
-    tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
+    tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📖 Instrucciones"])
 
-    # --- TAB 1: Formulario + Tabla
+    # -------------------------------
+    # TAB 1
+    # -------------------------------
     with tab1:
         st.subheader("Añadir Familia de Producto")
-
         with st.form("form_producto_familia"):
             nombre = st.text_input("Nombre *", max_chars=150)
 
@@ -32,78 +34,85 @@ def render_producto_familia(supabase):
                     st.success("✅ Familia añadida")
                     st.rerun()
 
-        st.markdown("#### 📑 Familias actuales")
-        df = draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
+        # ---------------------------
+        # 🔎 Búsqueda y filtros
+        # ---------------------------
+        st.markdown("### 🔎 Buscar / Filtrar familias")
+        df = pd.DataFrame(supabase.table(TABLE).select("*").execute().data)
 
         if not df.empty:
-            st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
+            with st.expander("🔎 Filtros"):
+                campo = st.selectbox("Selecciona un campo", df.columns, key="pf_campo")
+                valor = st.text_input("Valor a buscar", key="pf_valor")
+                orden = st.radio("Ordenar por", ["Ascendente", "Descendente"],
+                                 horizontal=True, key="pf_orden")
 
-            header = st.columns([0.5, 0.5, 3])
-            header[0].markdown("**✏️**")
-            header[1].markdown("**🗑️**")
-            header[2].markdown("**Nombre**")
+                if valor:
+                    df = df[df[campo].astype(str).str.contains(valor, case=False, na=False)]
+                df = df.sort_values(by=campo, ascending=(orden=="Ascendente"))
 
-            for _, row in df.iterrows():
-                fid = int(row["familiaid"])
-                cols = st.columns([0.5, 0.5, 3])
+        # ---------------------------
+        # 📑 Tabla en vivo
+        # ---------------------------
+        st.markdown("### 📑 Familias registradas")
+        st.dataframe(df, use_container_width=True)
 
-                # Editar
-                with cols[0]:
-                    if can_edit():
-                        if st.button("✏️", key=f"edit_pf_{fid}"):
+        # ---------------------------
+        # ⚙️ Acciones avanzadas
+        # ---------------------------
+        st.markdown("### ⚙️ Acciones avanzadas")
+        with st.expander("⚙️ Editar / Borrar familias (requiere login)"):
+            if can_edit():
+                for _, row in df.iterrows():
+                    fid = int(row["familiaid"])
+                    st.markdown(f"**#{fid} — {row.get('nombre','')}**")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("✏️ Editar", key=f"edit_pf_{fid}"):
                             st.session_state[EDIT_KEY] = fid
                             st.rerun()
-                    else:
-                        st.button("✏️", key=f"edit_pf_{fid}", disabled=True)
-
-                # Borrar
-                with cols[1]:
-                    if can_edit():
-                        if st.button("🗑️", key=f"ask_del_pf_{fid}"):
+                    with c2:
+                        if st.button("🗑️ Borrar", key=f"del_pf_{fid}"):
                             st.session_state[DEL_KEY] = fid
                             st.rerun()
-                    else:
-                        st.button("🗑️", key=f"ask_del_pf_{fid}", disabled=True)
+                    st.markdown("---")
 
-                cols[2].write(row.get("nombre", ""))
+                # Confirmar borrado
+                if st.session_state.get(DEL_KEY):
+                    did = st.session_state[DEL_KEY]
+                    st.error(f"⚠️ ¿Eliminar familia #{did}?")
+                    c1,c2 = st.columns(2)
+                    with c1:
+                        if st.button("✅ Confirmar", key="pf_confirm"):
+                            supabase.table(TABLE).delete().eq("familiaid", did).execute()
+                            st.success("✅ Familia eliminada")
+                            st.session_state[DEL_KEY] = None
+                            st.rerun()
+                    with c2:
+                        if st.button("❌ Cancelar", key="pf_cancel"):
+                            st.session_state[DEL_KEY] = None
+                            st.rerun()
 
-            # Confirmar borrado
-            if st.session_state.get(DEL_KEY):
-                did = st.session_state[DEL_KEY]
-                st.markdown("---")
-                st.error(f"⚠️ ¿Seguro que quieres eliminar la familia #{did}?")
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("✅ Confirmar", key="confirm_del_pf"):
-                        supabase.table(TABLE).delete().eq("familiaid", did).execute()
-                        st.success("✅ Familia eliminada")
-                        st.session_state[DEL_KEY] = None
-                        st.rerun()
-                with c2:
-                    if st.button("❌ Cancelar", key="cancel_del_pf"):
-                        st.session_state[DEL_KEY] = None
-                        st.rerun()
-
-            # Edición inline
-            if st.session_state.get(EDIT_KEY):
-                eid = st.session_state[EDIT_KEY]
-                cur = df[df["familiaid"] == eid].iloc[0].to_dict()
-                st.markdown("---")
-                st.subheader(f"Editar Familia #{eid}")
-                with st.form(f"edit_pf_{eid}"):
-                    nombre = st.text_input("Nombre", cur.get("nombre", ""))
-                    if st.form_submit_button("💾 Guardar"):
-                        if can_edit():
+                # Edición inline
+                if st.session_state.get(EDIT_KEY):
+                    eid = st.session_state[EDIT_KEY]
+                    cur = df[df["familiaid"]==eid].iloc[0].to_dict()
+                    st.subheader(f"Editar Familia #{eid}")
+                    with st.form(f"edit_pf_{eid}"):
+                        nombre = st.text_input("Nombre", cur.get("nombre",""))
+                        if st.form_submit_button("💾 Guardar"):
                             supabase.table(TABLE).update({
                                 "nombre": nombre
                             }).eq("familiaid", eid).execute()
                             st.success("✅ Familia actualizada")
                             st.session_state[EDIT_KEY] = None
                             st.rerun()
-                        else:
-                            st.error("⚠️ Inicia sesión para editar registros.")
+            else:
+                st.warning("⚠️ Debes iniciar sesión para editar o borrar familias.")
 
-    # --- TAB 2: CSV
+    # -------------------------------
+    # TAB 2: CSV
+    # -------------------------------
     with tab2:
         st.subheader("Importar desde CSV")
         st.caption("Columnas: nombre")
@@ -111,12 +120,14 @@ def render_producto_familia(supabase):
         if up:
             df_csv = pd.read_csv(up)
             st.dataframe(df_csv, use_container_width=True)
-            if st.button("➕ Insertar todos", key="btn_csv_producto_familia"):
+            if st.button("➕ Insertar todos", key="btn_csv_pf"):
                 supabase.table(TABLE).insert(df_csv.to_dict(orient="records")).execute()
                 st.success(f"✅ Insertados {len(df_csv)}")
                 st.rerun()
 
-    # --- TAB 3: Instrucciones
+    # -------------------------------
+    # TAB 3: Instrucciones
+    # -------------------------------
     with tab3:
         st.subheader("📑 Campos de Familias de Producto")
         st.markdown("""

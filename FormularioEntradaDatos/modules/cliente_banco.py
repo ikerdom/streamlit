@@ -1,8 +1,7 @@
+# modules/cliente_banco.py
 import streamlit as st
 import pandas as pd
-from .ui import (
-    render_header, draw_live_df, can_edit, fetch_options
-)
+from .ui import render_header, can_edit, fetch_options
 
 TABLE = "clientebanco"
 FIELDS_LIST = [
@@ -10,27 +9,32 @@ FIELDS_LIST = [
     "titular","banco","predeterminado"
 ]
 
+EDIT_KEY = "editing_banco"
+DEL_KEY  = "pending_delete_banco"
+
 def render_cliente_banco(supabase):
-    # ✅ Cabecera unificada con logo
+    # ✅ Cabecera
     render_header(
         "🏦 Bancos Cliente",
         "Gestión de cuentas bancarias asociadas a cada cliente."
     )
 
-    tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
+    tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📖 Instrucciones"])
 
-    # --- Formulario
+    # ---------------------------
+    # TAB 1
+    # ---------------------------
     with tab1:
-        clientes, map_clientes = fetch_options(
-            supabase, "cliente", "clienteid", "nombrefiscal"
-        )
+        st.subheader("Añadir Cuenta Bancaria")
+
+        clientes, map_clientes = fetch_options(supabase, "cliente", "clienteid", "nombrefiscal")
 
         with st.form("form_clientebanco"):
             cliente = st.selectbox("Cliente *", clientes)
             iban = st.text_input("IBAN *", max_chars=34, placeholder="ES9820385778983000760236")
             bic = st.text_input("BIC", max_chars=11, placeholder="BANKESMMXXX")
-            titular = st.text_input("Titular", placeholder="Nombre del titular de la cuenta")
-            banco = st.text_input("Banco", placeholder="Entidad bancaria")
+            titular = st.text_input("Titular")
+            banco = st.text_input("Banco")
             predeterminado = st.checkbox("Predeterminado", value=False)
 
             if st.form_submit_button("➕ Insertar"):
@@ -49,83 +53,83 @@ def render_cliente_banco(supabase):
                     st.success("✅ Cuenta añadida")
                     st.rerun()
 
-        st.markdown("#### 📑 Cuentas actuales con acciones")
-        df = draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
+        # ---------------------------
+        # 🔎 Búsqueda y filtros
+        # ---------------------------
+        st.markdown("### 🔎 Buscar / Filtrar cuentas")
+        df = pd.DataFrame(supabase.table(TABLE).select("*").execute().data)
 
         if not df.empty:
-            # Mapear clienteid a nombre fiscal
+            # Mapear clienteid → nombre fiscal
             clientes_map = {
                 c["clienteid"]: c["nombrefiscal"]
-                for c in supabase.table("cliente")
-                .select("clienteid,nombrefiscal").execute().data
+                for c in supabase.table("cliente").select("clienteid,nombrefiscal").execute().data
             }
-            df["cliente"] = df["clienteid"].map(clientes_map)
+            df["clienteid"] = df["clienteid"].map(clientes_map)
 
-            st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
+            with st.expander("🔎 Filtros"):
+                campo = st.selectbox("Selecciona un campo", df.columns, key="banco_campo")
+                valor = st.text_input("Valor a buscar", key="banco_valor")
+                orden = st.radio("Ordenar por", ["Ascendente", "Descendente"], horizontal=True, key="banco_orden")
 
-            header = st.columns([0.5,0.5,2,2,2,2,2])
-            for h, txt in zip(header, ["✏️","🗑️","Cliente","IBAN","Titular","Banco","Predet."]):
-                h.markdown(f"**{txt}**")
+                if valor:
+                    df = df[df[campo].astype(str).str.contains(valor, case=False, na=False)]
+                df = df.sort_values(by=campo, ascending=(orden == "Ascendente"))
 
-            for _, row in df.iterrows():
-                bid = int(row["clientebancoid"])
-                cols = st.columns([0.5,0.5,2,2,2,2,2])
+        # ---------------------------
+        # 📑 Tabla en vivo
+        # ---------------------------
+        st.markdown("### 📑 Cuentas registradas")
+        st.dataframe(df, use_container_width=True)
 
-                # Editar
-                with cols[0]:
-                    if can_edit():
-                        if st.button("✏️", key=f"edit_{bid}"):
-                            st.session_state["editing"] = bid
+        # ---------------------------
+        # ⚙️ Acciones avanzadas
+        # ---------------------------
+        st.markdown("### ⚙️ Acciones avanzadas")
+        with st.expander("⚙️ Editar / Borrar cuentas (requiere login)"):
+            if can_edit():
+                for _, row in df.iterrows():
+                    bid = int(row["clientebancoid"])
+                    st.markdown(f"**{row.get('clienteid','')} — {row.get('iban','')}**")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("✏️ Editar", key=f"edit_banco_{bid}"):
+                            st.session_state[EDIT_KEY] = bid
                             st.rerun()
-                    else:
-                        st.button("✏️", key=f"edit_{bid}", disabled=True)
-
-                # Borrar
-                with cols[1]:
-                    if can_edit():
-                        if st.button("🗑️", key=f"ask_del_{bid}"):
-                            st.session_state["pending_delete"] = bid
+                    with c2:
+                        if st.button("🗑️ Borrar", key=f"del_banco_{bid}"):
+                            st.session_state[DEL_KEY] = bid
                             st.rerun()
-                    else:
-                        st.button("🗑️", key=f"ask_del_{bid}", disabled=True)
+                    st.markdown("---")
 
-                cols[2].write(row.get("cliente",""))
-                cols[3].write(row.get("iban",""))
-                cols[4].write(row.get("titular",""))
-                cols[5].write(row.get("banco",""))
-                cols[6].write("✅" if row.get("predeterminado") else "—")
+                # Confirmar borrado
+                if st.session_state.get(DEL_KEY):
+                    did = st.session_state[DEL_KEY]
+                    st.error(f"⚠️ ¿Eliminar cuenta bancaria #{did}?")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("✅ Confirmar", key="banco_confirm"):
+                            supabase.table(TABLE).delete().eq("clientebancoid", did).execute()
+                            st.success("✅ Cuenta eliminada")
+                            st.session_state[DEL_KEY] = None
+                            st.rerun()
+                    with c2:
+                        if st.button("❌ Cancelar", key="banco_cancel"):
+                            st.session_state[DEL_KEY] = None
+                            st.rerun()
 
-            # Confirmar borrado
-            if st.session_state.get("pending_delete"):
-                did = st.session_state["pending_delete"]
-                st.markdown("---")
-                st.error(f"⚠️ ¿Seguro que quieres eliminar la cuenta #{did}?")
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("✅ Confirmar", key="confirm_del"):
-                        supabase.table(TABLE).delete().eq("clientebancoid", did).execute()
-                        st.success("✅ Eliminada")
-                        st.session_state["pending_delete"] = None
-                        st.rerun()
-                with c2:
-                    if st.button("❌ Cancelar", key="cancel_del"):
-                        st.session_state["pending_delete"] = None
-                        st.rerun()
-
-            # Edición inline
-            if st.session_state.get("editing"):
-                eid = st.session_state["editing"]
-                cur = df[df["clientebancoid"]==eid].iloc[0].to_dict()
-                st.markdown("---")
-                st.subheader(f"Editar Cuenta #{eid}")
-                with st.form("edit_banco"):
-                    iban = st.text_input("IBAN", cur.get("iban",""))
-                    bic = st.text_input("BIC", cur.get("bic",""))
-                    titular = st.text_input("Titular", cur.get("titular",""))
-                    banco = st.text_input("Banco", cur.get("banco",""))
-                    pred = st.checkbox("Predeterminado", value=cur.get("predeterminado",False))
-                    if st.form_submit_button("💾 Guardar"):
-                        if can_edit():
+                # Edición inline
+                if st.session_state.get(EDIT_KEY):
+                    eid = st.session_state[EDIT_KEY]
+                    cur = df[df["clientebancoid"]==eid].iloc[0].to_dict()
+                    st.subheader(f"Editar Cuenta #{eid}")
+                    with st.form(f"edit_banco_{eid}"):
+                        iban = st.text_input("IBAN", cur.get("iban",""))
+                        bic = st.text_input("BIC", cur.get("bic",""))
+                        titular = st.text_input("Titular", cur.get("titular",""))
+                        banco = st.text_input("Banco", cur.get("banco",""))
+                        pred = st.checkbox("Predeterminado", value=cur.get("predeterminado",False))
+                        if st.form_submit_button("💾 Guardar"):
                             supabase.table(TABLE).update({
                                 "iban": iban,
                                 "bic": bic,
@@ -134,26 +138,30 @@ def render_cliente_banco(supabase):
                                 "predeterminado": pred
                             }).eq("clientebancoid", eid).execute()
                             st.success("✅ Cuenta actualizada")
-                            st.session_state["editing"] = None
+                            st.session_state[EDIT_KEY] = None
                             st.rerun()
-                        else:
-                            st.error("⚠️ Inicia sesión para editar registros.")
+            else:
+                st.warning("⚠️ Debes iniciar sesión para editar o borrar cuentas.")
 
-    # --- CSV
+    # ---------------------------
+    # TAB 2
+    # ---------------------------
     with tab2:
         st.subheader("Importar desde CSV")
         st.caption("Columnas: clienteid,iban,bic,titular,banco,predeterminado")
 
         up = st.file_uploader("Selecciona CSV", type=["csv"], key="csv_banco")
         if up:
-            df = pd.read_csv(up)
-            st.dataframe(df, use_container_width=True)
+            df_csv = pd.read_csv(up)
+            st.dataframe(df_csv, use_container_width=True)
             if st.button("➕ Insertar todos", key="btn_csv_banco"):
-                supabase.table(TABLE).insert(df.to_dict(orient="records")).execute()
-                st.success(f"✅ Insertados {len(df)}")
+                supabase.table(TABLE).insert(df_csv.to_dict(orient="records")).execute()
+                st.success(f"✅ Insertados {len(df_csv)}")
                 st.rerun()
 
-    # --- Instrucciones
+    # ---------------------------
+    # TAB 3
+    # ---------------------------
     with tab3:
         st.subheader("📑 Campos de Bancos Cliente")
         st.markdown("""

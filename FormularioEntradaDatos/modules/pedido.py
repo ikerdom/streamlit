@@ -1,11 +1,15 @@
+# modules/pedido.py
 import streamlit as st
 import pandas as pd
 from .ui import (
-    draw_live_df, can_edit, fetch_options, render_header
+    can_edit, fetch_options, render_header
 )
 
 TABLE = "pedido"
 FIELDS_LIST = ["pedidoid","clienteid","trabajadorid","numpedido","fechapedido","total"]
+
+EDIT_KEY = "editing_ped"
+DEL_KEY  = "pending_delete_ped"
 
 def render_pedido(supabase):
     # ✅ Cabecera unificada
@@ -14,14 +18,16 @@ def render_pedido(supabase):
         "Alta y administración de pedidos de clientes."
     )
 
-    tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
+    tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📖 Instrucciones"])
 
-    # --- TAB 1: Formulario
+    # ---------------------------
+    # TAB 1
+    # ---------------------------
     with tab1:
         st.subheader("Añadir Pedido")
 
-        clientes, map_cli      = fetch_options(supabase, "cliente", "clienteid", "nombrefiscal")
-        trabajadores, map_tra  = fetch_options(supabase, "trabajador", "trabajadorid", "nombre")
+        clientes, map_cli     = fetch_options(supabase, "cliente", "clienteid", "nombrefiscal")
+        trabajadores, map_tra = fetch_options(supabase, "trabajador", "trabajadorid", "nombre")
 
         with st.form("form_pedido"):
             cliente    = st.selectbox("Cliente *", clientes)
@@ -45,83 +51,96 @@ def render_pedido(supabase):
                     st.success("✅ Pedido insertado")
                     st.rerun()
 
-        st.markdown("#### 📑 Pedidos (en vivo) con acciones")
-        df = draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
+        # ---------------------------
+        # 🔎 Búsqueda y filtros
+        # ---------------------------
+        st.markdown("### 🔎 Buscar / Filtrar pedidos")
+        df = pd.DataFrame(supabase.table(TABLE).select("*").execute().data)
 
         if not df.empty:
-            st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
+            with st.expander("🔎 Filtros"):
+                campo = st.selectbox("Selecciona un campo", df.columns, key="ped_campo")
+                valor = st.text_input("Valor a buscar", key="ped_valor")
+                orden = st.radio("Ordenar por", ["Ascendente", "Descendente"],
+                                 horizontal=True, key="ped_orden")
 
-            header = st.columns([0.5,0.5,2,2,2,1,1])
-            for h, txt in zip(header, ["✏️","🗑️","ClienteID","TrabajadorID","NumPedido","Fecha","Total"]):
-                h.markdown(f"**{txt}**")
+                if valor:
+                    df = df[df[campo].astype(str).str.contains(valor, case=False, na=False)]
+                df = df.sort_values(by=campo, ascending=(orden=="Ascendente"))
 
-            for _, row in df.iterrows():
-                pid = int(row["pedidoid"])
-                cols = st.columns([0.5,0.5,2,2,2,1,1])
+        # Mapear IDs → nombres legibles
+        clientes_map = {c["clienteid"]: c["nombrefiscal"]
+                        for c in supabase.table("cliente").select("clienteid,nombrefiscal").execute().data}
+        trabajadores_map = {t["trabajadorid"]: t["nombre"]
+                            for t in supabase.table("trabajador").select("trabajadorid,nombre").execute().data}
 
-                # Editar
-                with cols[0]:
-                    if can_edit():
-                        if st.button("✏️", key=f"edit_{pid}"):
-                            st.session_state["editing"] = pid
+        df["Cliente"]    = df["clienteid"].map(clientes_map)
+        df["Trabajador"] = df["trabajadorid"].map(trabajadores_map)
+
+        # ---------------------------
+        # 📑 Tabla en vivo
+        # ---------------------------
+        st.markdown("### 📑 Pedidos registrados")
+        st.dataframe(df, use_container_width=True)
+
+        # ---------------------------
+        # ⚙️ Acciones avanzadas
+        # ---------------------------
+        st.markdown("### ⚙️ Acciones avanzadas")
+        with st.expander("⚙️ Editar / Borrar pedidos (requiere login)"):
+            if can_edit():
+                for _, row in df.iterrows():
+                    pid = int(row["pedidoid"])
+                    st.markdown(f"**{row.get('Cliente','')} — {row.get('numpedido','')} ({row.get('total','')} €)**")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("✏️ Editar", key=f"edit_ped_{pid}"):
+                            st.session_state[EDIT_KEY] = pid
                             st.rerun()
-                    else:
-                        st.button("✏️", key=f"edit_{pid}", disabled=True)
-
-                # Borrar
-                with cols[1]:
-                    if can_edit():
-                        if st.button("🗑️", key=f"ask_del_{pid}"):
-                            st.session_state["pending_delete"] = pid
+                    with c2:
+                        if st.button("🗑️ Borrar", key=f"del_ped_{pid}"):
+                            st.session_state[DEL_KEY] = pid
                             st.rerun()
-                    else:
-                        st.button("🗑️", key=f"ask_del_{pid}", disabled=True)
+                    st.markdown("---")
 
-                cols[2].write(row.get("clienteid",""))
-                cols[3].write(row.get("trabajadorid",""))
-                cols[4].write(row.get("numpedido",""))
-                cols[5].write(row.get("fechapedido",""))
-                cols[6].write(row.get("total",""))
+                # Confirmar borrado
+                if st.session_state.get(DEL_KEY):
+                    did = st.session_state[DEL_KEY]
+                    st.error(f"⚠️ ¿Eliminar pedido #{did}?")
+                    c1,c2 = st.columns(2)
+                    with c1:
+                        if st.button("✅ Confirmar", key="ped_confirm"):
+                            supabase.table(TABLE).delete().eq("pedidoid", did).execute()
+                            st.success("✅ Pedido eliminado")
+                            st.session_state[DEL_KEY] = None
+                            st.rerun()
+                    with c2:
+                        if st.button("❌ Cancelar", key="ped_cancel"):
+                            st.session_state[DEL_KEY] = None
+                            st.rerun()
 
-            # Confirmación de borrado
-            if st.session_state.get("pending_delete"):
-                did = st.session_state["pending_delete"]
-                st.markdown("---")
-                st.error(f"⚠️ ¿Eliminar pedido #{did}?")
-                c1,c2 = st.columns(2)
-                with c1:
-                    if st.button("✅ Confirmar", key="confirm_del"):
-                        supabase.table(TABLE).delete().eq("pedidoid", did).execute()
-                        st.success("✅ Pedido eliminado")
-                        st.session_state["pending_delete"] = None
-                        st.rerun()
-                with c2:
-                    if st.button("❌ Cancelar", key="cancel_del"):
-                        st.session_state["pending_delete"] = None
-                        st.rerun()
-
-            # Edición inline
-            if st.session_state.get("editing"):
-                eid = st.session_state["editing"]
-                cur = df[df["pedidoid"]==eid].iloc[0].to_dict()
-                st.markdown("---")
-                st.subheader(f"Editar Pedido #{eid}")
-                with st.form("edit_pedido"):
-                    numpedido = st.text_input("Número Pedido", cur.get("numpedido",""))
-                    total     = st.number_input("Total (€)", value=float(cur.get("total",0)), step=0.01)
-                    if st.form_submit_button("💾 Guardar"):
-                        if can_edit():
+                # Edición inline
+                if st.session_state.get(EDIT_KEY):
+                    eid = st.session_state[EDIT_KEY]
+                    cur = df[df["pedidoid"]==eid].iloc[0].to_dict()
+                    st.subheader(f"Editar Pedido #{eid}")
+                    with st.form(f"edit_ped_{eid}"):
+                        numpedido = st.text_input("Número Pedido", cur.get("numpedido",""))
+                        total     = st.number_input("Total (€)", value=float(cur.get("total",0)), step=0.01)
+                        if st.form_submit_button("💾 Guardar"):
                             supabase.table(TABLE).update({
                                 "numpedido": numpedido,
                                 "total": total
                             }).eq("pedidoid", eid).execute()
                             st.success("✅ Pedido actualizado")
-                            st.session_state["editing"] = None
+                            st.session_state[EDIT_KEY] = None
                             st.rerun()
-                        else:
-                            st.error("⚠️ Inicia sesión para editar registros.")
+            else:
+                st.warning("⚠️ Debes iniciar sesión para editar o borrar pedidos.")
 
-    # --- TAB 2: CSV
+    # ---------------------------
+    # TAB 2
+    # ---------------------------
     with tab2:
         st.subheader("Importar desde CSV")
         st.caption("Columnas: clienteid,trabajadorid,numpedido,fechapedido,total")
@@ -129,17 +148,16 @@ def render_pedido(supabase):
         if up:
             df_csv = pd.read_csv(up)
             st.dataframe(df_csv, use_container_width=True)
-            if st.button("➕ Insertar todos", key="btn_csv_pedido"):
+            if st.button("➕ Insertar todos", key="btn_csv_ped"):
                 supabase.table(TABLE).insert(df_csv.to_dict(orient="records")).execute()
                 st.success(f"✅ Insertados {len(df_csv)}")
                 st.rerun()
 
-        st.markdown("#### 📑 Pedidos (en vivo)")
-        draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
-
-    # --- TAB 3: Instrucciones
+    # ---------------------------
+    # TAB 3
+    # ---------------------------
     with tab3:
-        st.subheader("📑 Campos e Instrucciones de Pedido")
+        st.subheader("📑 Campos de Pedido")
         st.markdown("""
         - **pedidoid** → Identificador único del pedido.  
         - **clienteid** → Cliente asociado (FK).  
@@ -147,10 +165,10 @@ def render_pedido(supabase):
         - **numpedido** → Número de pedido (obligatorio).  
         - **fechapedido** → Fecha de creación.  
         - **total** → Importe total del pedido.  
-
-        ⚠️ Reglas:
-        - El **Número de pedido** es obligatorio y debe ser único.  
-        - **Cliente** y **Trabajador** deben existir previamente.  
-        - **Fecha** debe tener un formato válido (date).  
-        - **Total** debe ser un valor numérico positivo.  
         """)
+        st.subheader("📖 Ejemplo CSV")
+        st.code(
+            "clienteid,trabajadorid,numpedido,fechapedido,total\n"
+            "1,2,PED001,2025-09-23,120.50",
+            language="csv"
+        )

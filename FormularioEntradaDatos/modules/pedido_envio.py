@@ -1,7 +1,8 @@
+# modules/pedido_envio.py
 import streamlit as st
 import pandas as pd
 from .ui import (
-    draw_live_df, can_edit, fetch_options, render_header
+    can_edit, fetch_options, render_header
 )
 
 TABLE = "pedidoenvio"
@@ -11,6 +12,9 @@ FIELDS_LIST = [
     "transportistaid","metodoenvioid","costeenvio","tracking"
 ]
 
+EDIT_KEY = "editing_env"
+DEL_KEY  = "pending_delete_env"
+
 def render_pedido_envio(supabase):
     # ✅ Cabecera unificada
     render_header(
@@ -18,10 +22,14 @@ def render_pedido_envio(supabase):
         "Gestión de datos de envío asociados a cada pedido."
     )
 
-    tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
+    tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📖 Instrucciones"])
 
-    # --- TAB 1: Formulario
+    # ---------------------------
+    # TAB 1
+    # ---------------------------
     with tab1:
+        st.subheader("Añadir envío")
+
         pedidos, map_pedidos       = fetch_options(supabase, "pedido", "pedidoid", "numpedido")
         direcciones, map_dirs      = fetch_options(supabase, "clientedireccion", "clientedireccionid", "alias")
         transportistas, map_transp = fetch_options(supabase, "transportista", "transportistaid", "nombre")
@@ -35,18 +43,14 @@ def render_pedido_envio(supabase):
             cp         = st.text_input("Código Postal *", max_chars=10)
 
             c1, c2 = st.columns(2)
-            with c1:
-                ciudad    = st.text_input("Ciudad *")
-            with c2:
-                provincia = st.text_input("Provincia")
+            ciudad    = c1.text_input("Ciudad *")
+            provincia = c2.text_input("Provincia")
 
             pais = st.text_input("País", value="España")
 
             c3, c4 = st.columns(2)
-            with c3:
-                transp = st.selectbox("Transportista", ["— Ninguno —"] + transportistas)
-            with c4:
-                metodo = st.selectbox("Método Envío", ["— Ninguno —"] + metodos)
+            transp = c3.selectbox("Transportista", ["— Ninguno —"] + transportistas)
+            metodo = c4.selectbox("Método Envío", ["— Ninguno —"] + metodos)
 
             coste    = st.number_input("Coste Envío (€)", min_value=0.0, step=0.5)
             tracking = st.text_input("Tracking")
@@ -73,90 +77,93 @@ def render_pedido_envio(supabase):
                     st.success("✅ Envío añadido")
                     st.rerun()
 
-        st.markdown("#### 📑 Envíos actuales con acciones")
-        df = draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
+        # ---------------------------
+        # 🔎 Búsqueda y filtros
+        # ---------------------------
+        st.markdown("### 🔎 Buscar / Filtrar envíos")
+        df = pd.DataFrame(supabase.table(TABLE).select("*").execute().data)
 
         if not df.empty:
-            # Mapear IDs a nombres legibles
-            pedidos_map        = {p["pedidoid"]: p["numpedido"] for p in supabase.table("pedido").select("pedidoid,numpedido").execute().data}
-            direcciones_map    = {d["clientedireccionid"]: d.get("alias","") for d in supabase.table("clientedireccion").select("clientedireccionid,alias").execute().data}
-            transportistas_map = {t["transportistaid"]: t["nombre"] for t in supabase.table("transportista").select("transportistaid,nombre").execute().data}
-            metodos_map        = {m["metodoenvioid"]: m["nombre"] for m in supabase.table("metodoenvio").select("metodoenvioid,nombre").execute().data}
+            with st.expander("🔎 Filtros"):
+                campo = st.selectbox("Selecciona un campo", df.columns, key="env_campo")
+                valor = st.text_input("Valor a buscar", key="env_valor")
+                orden = st.radio("Ordenar por", ["Ascendente", "Descendente"],
+                                 horizontal=True, key="env_orden")
 
-            df["pedido"]        = df["pedidoid"].map(pedidos_map)
-            df["direccion"]     = df["clientedireccionid"].map(direcciones_map)
-            df["transportista"] = df["transportistaid"].map(transportistas_map)
-            df["metodo"]        = df["metodoenvioid"].map(metodos_map)
+                if valor:
+                    df = df[df[campo].astype(str).str.contains(valor, case=False, na=False)]
+                df = df.sort_values(by=campo, ascending=(orden=="Ascendente"))
 
-            st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
+        # Mapear IDs → nombres legibles
+        pedidos_map        = {p["pedidoid"]: p["numpedido"] for p in supabase.table("pedido").select("pedidoid,numpedido").execute().data}
+        direcciones_map    = {d["clientedireccionid"]: d.get("alias","") for d in supabase.table("clientedireccion").select("clientedireccionid,alias").execute().data}
+        transportistas_map = {t["transportistaid"]: t["nombre"] for t in supabase.table("transportista").select("transportistaid,nombre").execute().data}
+        metodos_map        = {m["metodoenvioid"]: m["nombre"] for m in supabase.table("metodoenvio").select("metodoenvioid,nombre").execute().data}
 
-            header = st.columns([0.5,0.5,2,2,2,1,1])
-            for col, txt in zip(header, ["✏️","🗑️","Pedido","Destinatario","Ciudad","Coste","Tracking"]):
-                col.markdown(f"**{txt}**")
+        df["Pedido"]        = df["pedidoid"].map(pedidos_map)
+        df["Dirección"]     = df["clientedireccionid"].map(direcciones_map)
+        df["Transportista"] = df["transportistaid"].map(transportistas_map)
+        df["Método"]        = df["metodoenvioid"].map(metodos_map)
 
-            for _, row in df.iterrows():
-                eid  = int(row["pedidoenvioid"])
-                cols = st.columns([0.5,0.5,2,2,2,1,1])
+        # ---------------------------
+        # 📑 Tabla en vivo
+        # ---------------------------
+        st.markdown("### 📑 Envíos registrados")
+        st.dataframe(df, use_container_width=True)
 
-                # Editar
-                with cols[0]:
-                    if can_edit():
-                        if st.button("✏️", key=f"edit_{eid}"):
-                            st.session_state["editing"] = eid; st.rerun()
-                    else:
-                        st.button("✏️", key=f"edit_{eid}", disabled=True)
-
-                # Borrar
-                with cols[1]:
-                    if can_edit():
-                        if st.button("🗑️", key=f"ask_del_{eid}"):
-                            st.session_state["pending_delete"] = eid; st.rerun()
-                    else:
-                        st.button("🗑️", key=f"ask_del_{eid}", disabled=True)
-
-                cols[2].write(row.get("pedido",""))
-                cols[3].write(row.get("nombredestinatario",""))
-                cols[4].write(row.get("ciudad",""))
-                cols[5].write(row.get("costeenvio",""))
-                cols[6].write(row.get("tracking",""))
-
-            # Confirmación de borrado
-            if st.session_state.get("pending_delete"):
-                did = st.session_state["pending_delete"]
-                st.markdown("---")
-                st.error(f"⚠️ ¿Eliminar envío #{did}?")
-                c1,c2 = st.columns(2)
-                with c1:
-                    if st.button("✅ Confirmar", key="confirm_del"):
-                        supabase.table(TABLE).delete().eq("pedidoenvioid", did).execute()
-                        st.success("✅ Eliminado")
-                        st.session_state["pending_delete"] = None
-                        st.rerun()
-                with c2:
-                    if st.button("❌ Cancelar", key="cancel_del"):
-                        st.session_state["pending_delete"] = None
-                        st.rerun()
-
-            # Edición inline
-            if st.session_state.get("editing"):
-                eid = st.session_state["editing"]
-                cur = df[df["pedidoenvioid"]==eid].iloc[0].to_dict()
-                st.markdown("---"); st.subheader(f"Editar Envío #{eid}")
-                with st.form("edit_envio"):
-                    nombre     = st.text_input("Nombre Destinatario", cur.get("nombredestinatario",""))
-                    direccion1 = st.text_input("Dirección 1", cur.get("direccion1",""))
-                    cp         = st.text_input("Código Postal", cur.get("cp",""))
-
+        # ---------------------------
+        # ⚙️ Acciones avanzadas
+        # ---------------------------
+        st.markdown("### ⚙️ Acciones avanzadas")
+        with st.expander("⚙️ Editar / Borrar envíos (requiere login)"):
+            if can_edit():
+                for _, row in df.iterrows():
+                    eid = int(row["pedidoenvioid"])
+                    st.markdown(f"**Pedido {row.get('Pedido','')} — {row.get('nombredestinatario','')} ({row.get('ciudad','')})**")
                     c1, c2 = st.columns(2)
                     with c1:
-                        ciudad    = st.text_input("Ciudad", cur.get("ciudad",""))
+                        if st.button("✏️ Editar", key=f"edit_env_{eid}"):
+                            st.session_state[EDIT_KEY] = eid
+                            st.rerun()
                     with c2:
-                        provincia = st.text_input("Provincia", cur.get("provincia",""))
+                        if st.button("🗑️ Borrar", key=f"del_env_{eid}"):
+                            st.session_state[DEL_KEY] = eid
+                            st.rerun()
+                    st.markdown("---")
 
-                    coste    = st.number_input("Coste Envío (€)", value=float(cur.get("costeenvio",0)), step=0.5)
-                    tracking = st.text_input("Tracking", cur.get("tracking",""))
-                    if st.form_submit_button("💾 Guardar"):
-                        if can_edit():
+                # Confirmar borrado
+                if st.session_state.get(DEL_KEY):
+                    did = st.session_state[DEL_KEY]
+                    st.error(f"⚠️ ¿Eliminar envío #{did}?")
+                    c1,c2 = st.columns(2)
+                    with c1:
+                        if st.button("✅ Confirmar", key="env_confirm"):
+                            supabase.table(TABLE).delete().eq("pedidoenvioid", did).execute()
+                            st.success("✅ Envío eliminado")
+                            st.session_state[DEL_KEY] = None
+                            st.rerun()
+                    with c2:
+                        if st.button("❌ Cancelar", key="env_cancel"):
+                            st.session_state[DEL_KEY] = None
+                            st.rerun()
+
+                # Edición inline
+                if st.session_state.get(EDIT_KEY):
+                    eid = st.session_state[EDIT_KEY]
+                    cur = df[df["pedidoenvioid"]==eid].iloc[0].to_dict()
+                    st.subheader(f"Editar Envío #{eid}")
+                    with st.form(f"edit_env_{eid}"):
+                        nombre     = st.text_input("Nombre Destinatario", cur.get("nombredestinatario",""))
+                        direccion1 = st.text_input("Dirección 1", cur.get("direccion1",""))
+                        cp         = st.text_input("Código Postal", cur.get("cp",""))
+
+                        c1, c2 = st.columns(2)
+                        ciudad    = c1.text_input("Ciudad", cur.get("ciudad",""))
+                        provincia = c2.text_input("Provincia", cur.get("provincia",""))
+
+                        coste    = st.number_input("Coste Envío (€)", value=float(cur.get("costeenvio",0)), step=0.5)
+                        tracking = st.text_input("Tracking", cur.get("tracking",""))
+                        if st.form_submit_button("💾 Guardar"):
                             supabase.table(TABLE).update({
                                 "nombredestinatario": nombre,
                                 "direccion1": direccion1,
@@ -167,25 +174,29 @@ def render_pedido_envio(supabase):
                                 "tracking": tracking
                             }).eq("pedidoenvioid", eid).execute()
                             st.success("✅ Envío actualizado")
-                            st.session_state["editing"] = None
+                            st.session_state[EDIT_KEY] = None
                             st.rerun()
-                        else:
-                            st.error("⚠️ Inicia sesión para editar registros.")
+            else:
+                st.warning("⚠️ Debes iniciar sesión para editar o borrar envíos.")
 
-    # --- TAB 2: CSV
+    # ---------------------------
+    # TAB 2
+    # ---------------------------
     with tab2:
         st.subheader("Importar desde CSV")
         st.caption("Columnas: pedidoid,clientedireccionid,nombredestinatario,direccion1,cp,ciudad,provincia,pais,transportistaid,metodoenvioid,costeenvio,tracking")
         up = st.file_uploader("Selecciona CSV", type=["csv"], key="csv_pedidoenvio")
         if up:
-            df = pd.read_csv(up)
-            st.dataframe(df, use_container_width=True)
-            if st.button("➕ Insertar todos", key="btn_csv_pedidoenvio"):
-                supabase.table(TABLE).insert(df.to_dict(orient="records")).execute()
-                st.success(f"✅ Insertados {len(df)}")
+            df_csv = pd.read_csv(up)
+            st.dataframe(df_csv, use_container_width=True)
+            if st.button("➕ Insertar todos", key="btn_csv_env"):
+                supabase.table(TABLE).insert(df_csv.to_dict(orient="records")).execute()
+                st.success(f"✅ Insertados {len(df_csv)}")
                 st.rerun()
 
-    # --- TAB 3: Instrucciones
+    # ---------------------------
+    # TAB 3
+    # ---------------------------
     with tab3:
         st.subheader("📑 Campos de Envío de Pedido")
         st.markdown("""

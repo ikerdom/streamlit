@@ -1,8 +1,8 @@
+# modules/pedido_detalle.py
 import streamlit as st
 import pandas as pd
 from .ui import (
-    draw_live_df, can_edit, section_header,
-    fetch_options, render_header
+    can_edit, fetch_options, render_header
 )
 
 TABLE = "pedidodetalle"
@@ -12,6 +12,9 @@ FIELDS_LIST = [
     "importelineabase","importelineaiva","importelineatotal"
 ]
 
+EDIT_KEY = "editing_det"
+DEL_KEY  = "pending_delete_det"
+
 def render_pedido_detalle(supabase):
     # ✅ Cabecera unificada
     render_header(
@@ -19,11 +22,15 @@ def render_pedido_detalle(supabase):
         "Gestión de líneas de detalle asociadas a cada pedido con importes calculados."
     )
 
-    tab1, tab2, tab3 = st.tabs(["📝 Formulario", "📂 CSV", "📖 Instrucciones"])
+    tab1, tab2, tab3 = st.tabs(["📝 Formulario + Tabla", "📂 CSV", "📖 Instrucciones"])
 
-    # --- TAB 1: Formulario
+    # ---------------------------
+    # TAB 1
+    # ---------------------------
     with tab1:
-        pedidos, map_pedidos = fetch_options(supabase, "pedido", "pedidoid", "numpedido")
+        st.subheader("Añadir línea de Pedido")
+
+        pedidos, map_pedidos   = fetch_options(supabase, "pedido", "pedidoid", "numpedido")
         productos, map_productos = fetch_options(supabase, "producto", "productoid", "titulo")
 
         with st.form("form_pedidodetalle"):
@@ -31,16 +38,12 @@ def render_pedido_detalle(supabase):
             producto = st.selectbox("Producto *", productos)
 
             c1, c2 = st.columns(2)
-            with c1:
-                linea = st.number_input("Línea", min_value=1, step=1)
-            with c2:
-                cantidad = st.number_input("Cantidad", min_value=1, step=1)
+            linea    = c1.number_input("Línea", min_value=1, step=1)
+            cantidad = c2.number_input("Cantidad", min_value=1, step=1)
 
             c3, c4 = st.columns(2)
-            with c3:
-                precio = st.number_input("Precio Unitario (€)", min_value=0.0, step=0.5)
-            with c4:
-                descuento = st.number_input("Descuento (%)", min_value=0.0, max_value=100.0, step=0.5)
+            precio    = c3.number_input("Precio Unitario (€)", min_value=0.0, step=0.5)
+            descuento = c4.number_input("Descuento (%)", min_value=0.0, max_value=100.0, step=0.5)
 
             tipoiva = st.number_input("Tipo IVA (%)", min_value=0.0, step=0.5)
 
@@ -67,76 +70,83 @@ def render_pedido_detalle(supabase):
                     st.success("✅ Línea añadida")
                     st.rerun()
 
-        st.markdown("#### 📑 Detalles actuales con acciones")
-        df = draw_live_df(supabase, TABLE, columns=FIELDS_LIST)
+        # ---------------------------
+        # 🔎 Búsqueda y filtros
+        # ---------------------------
+        st.markdown("### 🔎 Buscar / Filtrar líneas")
+        df = pd.DataFrame(supabase.table(TABLE).select("*").execute().data)
 
         if not df.empty:
-            # Mapear pedidoid → numpedido y productoid → titulo
-            pedidos_map   = {p["pedidoid"]: p["numpedido"] for p in supabase.table("pedido").select("pedidoid,numpedido").execute().data}
-            productos_map = {p["productoid"]: p["titulo"]   for p in supabase.table("producto").select("productoid,titulo").execute().data}
+            with st.expander("🔎 Filtros"):
+                campo = st.selectbox("Selecciona un campo", df.columns, key="det_campo")
+                valor = st.text_input("Valor a buscar", key="det_valor")
+                orden = st.radio("Ordenar por", ["Ascendente", "Descendente"],
+                                 horizontal=True, key="det_orden")
 
-            df["pedido"]   = df["pedidoid"].map(pedidos_map)
-            df["producto"] = df["productoid"].map(productos_map)
+                if valor:
+                    df = df[df[campo].astype(str).str.contains(valor, case=False, na=False)]
+                df = df.sort_values(by=campo, ascending=(orden=="Ascendente"))
 
-            st.write("✏️ **Editar** o 🗑️ **Borrar** registros directamente:")
+        # Mapear IDs a nombres legibles
+        pedidos_map   = {p["pedidoid"]: p["numpedido"] for p in supabase.table("pedido").select("pedidoid,numpedido").execute().data}
+        productos_map = {p["productoid"]: p["titulo"] for p in supabase.table("producto").select("productoid,titulo").execute().data}
+        df["Pedido"]   = df["pedidoid"].map(pedidos_map)
+        df["Producto"] = df["productoid"].map(productos_map)
 
-            header = st.columns([0.5,0.5,2,3,1,1])
-            for h, txt in zip(header, ["✏️","🗑️","Pedido","Producto","Cantidad","Total"]):
-                h.markdown(f"**{txt}**")
+        # ---------------------------
+        # 📑 Tabla en vivo
+        # ---------------------------
+        st.markdown("### 📑 Detalles registrados")
+        st.dataframe(df, use_container_width=True)
 
-            for _, row in df.iterrows():
-                did  = int(row["pedidodetalleid"])
-                cols = st.columns([0.5,0.5,2,3,1,1])
+        # ---------------------------
+        # ⚙️ Acciones avanzadas
+        # ---------------------------
+        st.markdown("### ⚙️ Acciones avanzadas")
+        with st.expander("⚙️ Editar / Borrar detalles (requiere login)"):
+            if can_edit():
+                for _, row in df.iterrows():
+                    did = int(row["pedidodetalleid"])
+                    st.markdown(f"**Pedido {row.get('Pedido','')} — {row.get('Producto','')} ({row.get('cantidad','')} ud.)**")
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.button("✏️ Editar", key=f"edit_det_{did}"):
+                            st.session_state[EDIT_KEY] = did
+                            st.rerun()
+                    with c2:
+                        if st.button("🗑️ Borrar", key=f"del_det_{did}"):
+                            st.session_state[DEL_KEY] = did
+                            st.rerun()
+                    st.markdown("---")
 
-                with cols[0]:
-                    if can_edit():
-                        if st.button("✏️", key=f"edit_{did}"):
-                            st.session_state["editing"] = did; st.rerun()
-                    else:
-                        st.button("✏️", key=f"edit_{did}", disabled=True)
+                # Confirmar borrado
+                if st.session_state.get(DEL_KEY):
+                    did = st.session_state[DEL_KEY]
+                    st.error(f"⚠️ ¿Eliminar línea #{did}?")
+                    c1,c2 = st.columns(2)
+                    with c1:
+                        if st.button("✅ Confirmar", key="det_confirm"):
+                            supabase.table(TABLE).delete().eq("pedidodetalleid", did).execute()
+                            st.success("✅ Línea eliminada")
+                            st.session_state[DEL_KEY] = None
+                            st.rerun()
+                    with c2:
+                        if st.button("❌ Cancelar", key="det_cancel"):
+                            st.session_state[DEL_KEY] = None
+                            st.rerun()
 
-                with cols[1]:
-                    if can_edit():
-                        if st.button("🗑️", key=f"ask_del_{did}"):
-                            st.session_state["pending_delete"] = did; st.rerun()
-                    else:
-                        st.button("🗑️", key=f"ask_del_{did}", disabled=True)
+                # Edición inline
+                if st.session_state.get(EDIT_KEY):
+                    eid = st.session_state[EDIT_KEY]
+                    cur = df[df["pedidodetalleid"]==eid].iloc[0].to_dict()
+                    st.subheader(f"Editar Detalle #{eid}")
+                    with st.form(f"edit_det_{eid}"):
+                        cantidad  = st.number_input("Cantidad", value=int(cur.get("cantidad",1)), min_value=1)
+                        precio    = st.number_input("Precio Unitario (€)", value=float(cur.get("preciounitario",0)), min_value=0.0)
+                        descuento = st.number_input("Descuento (%)", value=float(cur.get("descuentopct",0)), min_value=0.0, max_value=100.0, step=0.5)
+                        tipoiva   = st.number_input("Tipo IVA (%)", value=float(cur.get("tipoivalinea",0)), min_value=0.0, step=0.5)
 
-                cols[2].write(row.get("pedido",""))
-                cols[3].write(row.get("producto",""))
-                cols[4].write(row.get("cantidad",""))
-                cols[5].write(row.get("importelineatotal",""))
-
-            # Confirmar borrado
-            if st.session_state.get("pending_delete"):
-                did = st.session_state["pending_delete"]
-                st.markdown("---")
-                st.error(f"⚠️ ¿Eliminar línea #{did}?")
-                c1,c2 = st.columns(2)
-                with c1:
-                    if st.button("✅ Confirmar", key="confirm_del"):
-                        supabase.table(TABLE).delete().eq("pedidodetalleid", did).execute()
-                        st.success("✅ Eliminada")
-                        st.session_state["pending_delete"] = None
-                        st.rerun()
-                with c2:
-                    if st.button("❌ Cancelar", key="cancel_del"):
-                        st.session_state["pending_delete"] = None
-                        st.rerun()
-
-            # Edición inline
-            if st.session_state.get("editing"):
-                eid = st.session_state["editing"]
-                cur = df[df["pedidodetalleid"]==eid].iloc[0].to_dict()
-                st.markdown("---"); st.subheader(f"Editar Detalle #{eid}")
-                with st.form("edit_detalle"):
-                    cantidad  = st.number_input("Cantidad", value=int(cur.get("cantidad",1)), min_value=1)
-                    precio    = st.number_input("Precio Unitario (€)", value=float(cur.get("preciounitario",0)), min_value=0.0)
-                    descuento = st.number_input("Descuento (%)", value=float(cur.get("descuentopct",0)), min_value=0.0, max_value=100.0, step=0.5)
-                    tipoiva   = st.number_input("Tipo IVA (%)", value=float(cur.get("tipoivalinea",0)), min_value=0.0, step=0.5)
-
-                    if st.form_submit_button("💾 Guardar"):
-                        if can_edit():
+                        if st.form_submit_button("💾 Guardar"):
                             base  = cantidad * precio * (1 - descuento/100)
                             iva   = base * (tipoiva/100)
                             total = base + iva
@@ -150,28 +160,32 @@ def render_pedido_detalle(supabase):
                                 "importelineatotal": total
                             }).eq("pedidodetalleid", eid).execute()
                             st.success("✅ Detalle actualizado")
-                            st.session_state["editing"] = None
+                            st.session_state[EDIT_KEY] = None
                             st.rerun()
-                        else:
-                            st.error("⚠️ Inicia sesión para editar registros.")
+            else:
+                st.warning("⚠️ Debes iniciar sesión para editar o borrar detalles.")
 
-    # --- TAB 2: CSV
+    # ---------------------------
+    # TAB 2
+    # ---------------------------
     with tab2:
         st.subheader("Importar desde CSV")
         st.caption("Columnas: pedidoid,linea,productoid,cantidad,preciounitario,descuentopct,tipoivalinea")
         up = st.file_uploader("Selecciona CSV", type=["csv"], key="csv_pedidodetalle")
         if up:
-            df = pd.read_csv(up)
-            st.dataframe(df, use_container_width=True)
-            if st.button("➕ Insertar todos", key="btn_csv_pedidodetalle"):
-                df["importelineabase"] = df["cantidad"] * df["preciounitario"] * (1 - df["descuentopct"]/100)
-                df["importelineaiva"]  = df["importelineabase"] * (df["tipoivalinea"]/100)
-                df["importelineatotal"]= df["importelineabase"] + df["importelineaiva"]
-                supabase.table(TABLE).insert(df.to_dict(orient="records")).execute()
-                st.success(f"✅ Insertados {len(df)}")
+            df_csv = pd.read_csv(up)
+            st.dataframe(df_csv, use_container_width=True)
+            if st.button("➕ Insertar todos", key="btn_csv_det"):
+                df_csv["importelineabase"] = df_csv["cantidad"] * df_csv["preciounitario"] * (1 - df_csv["descuentopct"]/100)
+                df_csv["importelineaiva"]  = df_csv["importelineabase"] * (df_csv["tipoivalinea"]/100)
+                df_csv["importelineatotal"]= df_csv["importelineabase"] + df_csv["importelineaiva"]
+                supabase.table(TABLE).insert(df_csv.to_dict(orient="records")).execute()
+                st.success(f"✅ Insertados {len(df_csv)}")
                 st.rerun()
 
-    # --- TAB 3: Instrucciones
+    # ---------------------------
+    # TAB 3
+    # ---------------------------
     with tab3:
         st.subheader("📑 Campos de Detalle de Pedido")
         st.markdown("""
