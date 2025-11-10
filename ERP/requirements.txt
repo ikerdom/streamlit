@@ -1,0 +1,14 @@
+streamlit>=1.38.0
+supabase
+pandas
+requests
+plotly
+python-dateutil
+psycopg2-binary
+numpy
+openpyxl
+matplotlib
+datetime
+reportlab
+pytz
+altair
