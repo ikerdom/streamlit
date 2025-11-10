@@ -12,3 +12,4 @@ datetime
 reportlab
 pytz
 altair
+graphviz
