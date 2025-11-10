@@ -25,7 +25,7 @@
 
 from datetime import date
 from math import prod
-from turtle import st
+import streamlit as st
 from typing import Optional, Dict, Any
 
 
