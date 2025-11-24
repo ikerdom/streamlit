@@ -25,7 +25,7 @@
 
 from datetime import date
 from math import prod
-import streamlit as st
+from turtle import st
 from typing import Optional, Dict, Any
 
 
@@ -50,15 +50,14 @@ def _first_or_none(rows):
 def _round2(x: float) -> float:
     return round(float(x or 0.0) + 1e-12, 2)  # evitar artefactos binarios
 
-
 def _fetch_cliente_ctx(supabase, clienteid: Optional[int]) -> Dict[str, Any]:
-    """
-    Devuelve contexto del cliente:
-    - grupoid
-    - regionid (preferencia: dirección de envío -> facturación)
-    - region_nombre (si se puede)
-    """
-    ctx = {"grupoid": None, "regionid": None, "region_nombre": None, "region_origen": None}
+    ctx = {
+        "grupoid": 0,
+        "regionid": None,
+        "region_nombre": "España",
+        "region_origen": None
+    }
+
     if not clienteid:
         return ctx
 
@@ -72,12 +71,12 @@ def _fetch_cliente_ctx(supabase, clienteid: Optional[int]) -> Dict[str, Any]:
             .execute()
             .data
         )
-        if cli:
-            ctx["grupoid"] = cli.get("grupoid")
-    except Exception:
+        if cli and cli.get("grupoid"):
+            ctx["grupoid"] = cli["grupoid"]
+    except:
         pass
 
-    # región: primero envío, luego fiscal/facturación
+    # dirección de envío
     try:
         env = (
             supabase.table("cliente_direccion")
@@ -89,9 +88,14 @@ def _fetch_cliente_ctx(supabase, clienteid: Optional[int]) -> Dict[str, Any]:
             .data
         )
         if env:
-            ctx["regionid"] = env[0].get("regionid")
+            ctx["regionid"] = env[0]["regionid"]
             ctx["region_origen"] = "envio"
-        else:
+    except:
+        pass
+
+    # dirección fiscal si no hay envío
+    if ctx["regionid"] is None:
+        try:
             fac = (
                 supabase.table("cliente_direccion")
                 .select("regionid")
@@ -102,29 +106,25 @@ def _fetch_cliente_ctx(supabase, clienteid: Optional[int]) -> Dict[str, Any]:
                 .data
             )
             if fac:
-                ctx["regionid"] = fac[0].get("regionid")
+                ctx["regionid"] = fac[0]["regionid"]
                 ctx["region_origen"] = "fiscal"
-    except Exception:
-        pass
-
-    # nombre de la región (si hay id)
-    if ctx["regionid"]:
-        try:
-            reg = (
-                supabase.table("region")
-                .select("nombre")
-                .eq("regionid", ctx["regionid"])
-                .single()
-                .execute()
-                .data
-            )
-            if reg:
-                ctx["region_nombre"] = reg.get("nombre")
-        except Exception:
+        except:
             pass
 
-    return ctx
+    # nombre región
+    if ctx["regionid"]:
+        reg = (
+            supabase.table("region")
+            .select("nombre")
+            .eq("regionid", ctx["regionid"])
+            .single()
+            .execute()
+            .data
+        )
+        if reg:
+            ctx["region_nombre"] = reg["nombre"]
 
+    return ctx
 
 def _fetch_producto_ctx(supabase, productoid: Optional[int]) -> Dict[str, Any]:
     """

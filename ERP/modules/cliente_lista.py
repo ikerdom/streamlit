@@ -225,19 +225,22 @@ def render_cliente_lista(supabase):
     # ---------------------------------------------------------
     if st.session_state.get("show_cliente_modal"):
         render_cliente_modal(supabase)
+        
 def _render_card(c, supabase):
     apply_orbe_theme()
 
-    """Tarjeta visual mejorada del cliente (coherente con la ficha modal)."""
     razon = _safe(c.get("razon_social"))
     ident = _safe(c.get("identificador"))
-    estado = get_estado_label(c.get("estadoid"), supabase)
-    categoria = get_categoria_label(c.get("categoriaid"), supabase)
-    grupo = get_grupo_label(c.get("grupoid"), supabase)
-    trabajador = get_trabajador_label(c.get("trabajadorid"), supabase)
-    forma_pago = get_formapago_label(c.get("formapagoid"), supabase)
+    estado = get_estado_label(c.get("estadoid"), supabase) or "-"
+    categoria = get_categoria_label(c.get("categoriaid"), supabase) or "-"
+    grupo = get_grupo_label(c.get("grupoid"), supabase) or "-"
+    trabajador = get_trabajador_label(c.get("trabajadorid"), supabase) or "-"
+    forma_pago = get_formapago_label(c.get("formapagoid"), supabase) or "-"
 
     # Último presupuesto
+    pres_estado = "Sin presupuesto"
+    pres_fecha = None
+
     try:
         pres = (
             supabase.table("presupuesto")
@@ -246,13 +249,14 @@ def _render_card(c, supabase):
             .order("fecha_presupuesto", desc=True)
             .limit(1)
             .execute()
+            .data
         )
-        pres_estadoid = pres.data[0]["estado_presupuestoid"] if pres.data else None
-        pres_fecha = pres.data[0]["fecha_presupuesto"] if pres.data else None
-        estado_map = {1: "Pendiente", 2: "Aceptado", 3: "Rechazado"}
-        pres_estado = estado_map.get(pres_estadoid, "Sin presupuesto")
-    except Exception:
-        pres_estado, pres_fecha = "Sin presupuesto", None
+        if pres:
+            estado_map = {1: "Pendiente", 2: "Aceptado", 3: "Rechazado"}
+            pres_estado = estado_map.get(pres[0]["estado_presupuestoid"], "Sin presupuesto")
+            pres_fecha = pres[0]["fecha_presupuesto"]
+    except:
+        pass
 
     # Colores
     color_estado = {
@@ -268,246 +272,67 @@ def _render_card(c, supabase):
         "Sin presupuesto": "#6b7280",
     }.get(pres_estado, "#6b7280")
 
-    st.markdown(
-        f"""
-        <div style="border:1px solid #e5e7eb;border-radius:12px;
-                    background:#f9fafb;padding:14px;margin-bottom:14px;
-                    box-shadow:0 1px 3px rgba(0,0,0,0.08);">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-                <div>
-                    <div style="font-size:1.05rem;font-weight:600;">🏢 {razon}</div>
-                    <div style="color:#6b7280;font-size:0.9rem;">{ident}</div>
-                </div>
-                <div style="color:{color_estado};font-weight:600;">{estado}</div>
-            </div>
-            <div style="margin-top:8px;font-size:0.9rem;line-height:1.4;">
-                👥 <b>Grupo:</b> {grupo}<br>
-                🧩 <b>Categoría:</b> {categoria}<br>
-                💳 <b>Pago:</b> {forma_pago}<br>
-                🧑 <b>Trabajador:</b> {trabajador}<br>
-                <span style="color:{color_pres};font-weight:600;">📦 {pres_estado}</span>
-                {'<div style="color:#4b5563;font-size:0.8rem;">🗓️ '+pres_fecha+'</div>' if pres_fecha else ''}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    fecha_html = f"<div style='color:#4b5563;font-size:0.8rem;'>🗓️ {pres_fecha}</div>" if pres_fecha else ""
 
-    c1, c2, c3 = st.columns([1, 1, 1])
-    with c1:
+    # =============================
+    # TARJETA HTML — DEFINITIVA
+    # =============================
+    html = f"""
+    <div style="border:1px solid #e5e7eb;border-radius:12px;
+                background:#f9fafb;padding:14px;margin-bottom:14px;
+                box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+            <div>
+                <div style="font-size:1.05rem;font-weight:600;">🏢 {razon}</div>
+                <div style="color:#6b7280;font-size:0.9rem;">{ident}</div>
+            </div>
+            <div style="color:{color_estado};font-weight:600;">{estado}</div>
+        </div>
+
+        <div style="margin-top:8px;font-size:0.9rem;line-height:1.45;">
+            👥 <b>Grupo:</b> {grupo}<br>
+            🧩 <b>Categoría:</b> {categoria}<br>
+            💳 <b>Pago:</b> {forma_pago}<br>
+            🧑 <b>Trabajador:</b> {trabajador}<br>
+            <span style="color:{color_pres};font-weight:600;">📦 {pres_estado}</span>
+            {fecha_html}
+        </div>
+    </div>
+    """
+
+    # 🚀 ESTA ES LA CLAVE: Renderizamos con st.html sí o sí
+    st.html(html)
+
+    # Botones
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
         if st.button("📄 Ficha", key=f"ficha_cli_{c['clienteid']}", use_container_width=True):
             st.session_state.update({
                 "cliente_modal_id": c["clienteid"],
-                "show_cliente_modal": True,
-                "confirm_delete": False,
+                "show_cliente_modal": True
             })
             st.rerun()
-    with c2:
+
+    with col2:
         if st.button("📨 Presupuesto", key=f"pres_cli_{c['clienteid']}", use_container_width=True):
-            try:
-                supabase.table("presupuesto").insert({
-                    "numero": f"PRES-{date.today().year}-{c['clienteid']}",
-                    "clienteid": c["clienteid"],
-                    "trabajadorid": c.get("trabajadorid"),
-                    "estado_presupuestoid": 1,
-                    "fecha_presupuesto": date.today().isoformat(),
-                    "observaciones": "Presupuesto inicial creado desde listado de clientes.",
-                    "editable": True,
-                    "facturar_individual": False,
-                }).execute()
-                st.toast(f"✅ Presupuesto creado para {razon}.", icon="📨")
-            except Exception as e:
-                st.error(f"❌ Error creando presupuesto: {e}")
-    with c3:
+            supabase.table("presupuesto").insert({
+                "numero": f"PRES-{date.today().year}-{c['clienteid']}",
+                "clienteid": c["clienteid"],
+                "estado_presupuestoid": 1,
+                "fecha_presupuesto": date.today().isoformat(),
+                "editable": True,
+            }).execute()
+            st.toast("📨 Presupuesto creado.", icon="📨")
+
+    with col3:
         if st.button("🗑️ Eliminar", key=f"elim_cli_{c['clienteid']}", use_container_width=True):
-            st.session_state.update({
-                "cliente_modal_id": c["clienteid"],
-                "confirm_delete": True,
-                "show_cliente_modal": True,
-            })
+            st.session_state["cliente_modal_id"] = c["clienteid"]
+            st.session_state["confirm_delete"] = True
+            st.session_state["show_cliente_modal"] = True
             st.rerun()
 
-def _render_table(clientes, supabase):
-    """Tabla de clientes con formato visual, badges y acciones, estilo verde corporativo."""
-    import io
-    import pandas as pd
-    from datetime import date
-
-    if not clientes:
-        st.info("📭 No hay clientes para mostrar.")
-        return
-
-    # =========================================================
-    # 💅 Estilos globales (tema Orbe)
-    # =========================================================
-    st.markdown("""
-    <style>
-    /* =============================
-       🌿 ORBE THEME — ESTILOS GLOBALES
-       ============================= */
-    main, [data-testid="stAppViewContainer"] {
-        max-width: 1200px !important;
-        margin: auto;
-        padding: 1rem 2rem;
-    }
-    h1, h2, h3 {
-        color: #065f46 !important;
-    }
-    div.stButton > button {
-        background: linear-gradient(90deg, #16a34a, #15803d) !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 8px !important;
-        font-weight: 500 !important;
-        padding: 0.6rem 1rem !important;
-        transition: all 0.2s ease-in-out;
-    }
-    div.stButton > button:hover {
-        background: linear-gradient(90deg, #15803d, #166534) !important;
-        transform: scale(1.02);
-    }
-    [data-testid="stMetricValue"] {
-        font-size: 1.2rem !important;
-        color: #065f46 !important;
-    }
-    .tabla-clientes {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 10px;
-        font-size: 0.93rem;
-    }
-    .tabla-clientes th {
-        text-align: left;
-        background-color: #ecfdf5;
-        color: #065f46;
-        padding: 8px;
-        border-bottom: 2px solid #a7f3d0;
-    }
-    .tabla-clientes td {
-        padding: 10px 8px;
-        border-bottom: 1px solid #e5e7eb;
-    }
-    .tabla-clientes tr:nth-child(even) {
-        background-color: #f9fafb;
-    }
-    .badge {
-        border-radius: 999px;
-        padding: 3px 8px;
-        font-size: 0.78rem;
-        color: white;
-        font-weight: 500;
-    }
-    .estado-activo { background-color: #10b981; }
-    .estado-potencial { background-color: #3b82f6; }
-    .estado-suspendido { background-color: #dc2626; }
-    .pres-aceptado { background-color: #16a34a; }
-    .pres-pendiente { background-color: #f59e0b; }
-    .pres-rechazado { background-color: #dc2626; }
-    .pres-sin { background-color: #6b7280; }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # =========================================================
-    # 📋 Cabecera de tabla
-    # =========================================================
-    st.markdown("""
-    <table class="tabla-clientes">
-        <tr>
-            <th>🏢 Cliente</th>
-            <th>📋 Estado</th>
-            <th>💰 Presupuesto</th>
-            <th>💳 Forma de pago</th>
-            <th>🧩 Categoría</th>
-            <th>👥 Grupo</th>
-            <th>🧑 Trabajador</th>
-            <th style="text-align:center;">⚙️ Acciones</th>
-        </tr>
-    """, unsafe_allow_html=True)
-
-    # =========================================================
-    # 🔁 Filas dinámicas
-    # =========================================================
-    for c in clientes:
-        razon = _safe(c.get("razon_social"))
-        ident = _safe(c.get("identificador"))
-        estado = get_estado_label(c.get("estadoid"), supabase)
-        categoria = get_categoria_label(c.get("categoriaid"), supabase)
-        grupo = get_grupo_label(c.get("grupoid"), supabase)
-        trabajador = get_trabajador_label(c.get("trabajadorid"), supabase)
-        forma_pago = get_formapago_label(c.get("formapagoid"), supabase)
-
-        # Último presupuesto
-        try:
-            pres = (
-                supabase.table("presupuesto")
-                .select("estado_presupuestoid, fecha_presupuesto")
-                .eq("clienteid", c["clienteid"])
-                .order("fecha_presupuesto", desc=True)
-                .limit(1)
-                .execute()
-            )
-            pres_estadoid = pres.data[0]["estado_presupuestoid"] if pres.data else None
-            pres_fecha = pres.data[0]["fecha_presupuesto"] if pres.data else None
-            estado_map = {1: "Pendiente", 2: "Aceptado", 3: "Rechazado"}
-            pres_estado = estado_map.get(pres_estadoid, "Sin presupuesto")
-        except Exception:
-            pres_estado, pres_fecha = "Sin presupuesto", None
-
-        # Colores
-        estado_class = {
-            "Activo": "estado-activo",
-            "Potencial": "estado-potencial",
-            "Suspendido": "estado-suspendido",
-        }.get(estado, "estado-activo")
-
-        pres_class = {
-            "Aceptado": "pres-aceptado",
-            "Pendiente": "pres-pendiente",
-            "Rechazado": "pres-rechazado",
-            "Sin presupuesto": "pres-sin",
-        }.get(pres_estado, "pres-sin")
-
-        pres_text = pres_fecha if pres_fecha else "-"
-
-        # Render HTML fila
-        st.markdown(
-            f"""
-            <tr>
-                <td><b>{razon}</b><br><span style='color:#6b7280;font-size:0.83rem'>{ident}</span></td>
-                <td><span class='badge {estado_class}'>{estado}</span></td>
-                <td><span class='badge {pres_class}'>{pres_estado}</span><br><span style='font-size:0.8rem;color:#4b5563;'>{pres_text}</span></td>
-                <td>{forma_pago}</td>
-                <td>{categoria}</td>
-                <td>{grupo}</td>
-                <td>{trabajador}</td>
-                <td style='text-align:center;'>
-                    <form action='#' style='display:flex;justify-content:center;gap:6px;'>
-                        <button onclick="window.parent.postMessage({{type:'streamlitRerun',data:'ficha_{c['clienteid']}'}})" style='padding:3px 8px;border-radius:6px;border:1px solid #16a34a;background:#ecfdf5;cursor:pointer;'>📄</button>
-                        <button onclick="window.parent.postMessage({{type:'streamlitRerun',data:'pres_{c['clienteid']}'}})" style='padding:3px 8px;border-radius:6px;border:1px solid #16a34a;background:#dcfce7;cursor:pointer;'>📨</button>
-                        <button onclick="window.parent.postMessage({{type:'streamlitRerun',data:'elim_{c['clienteid']}'}})" style='padding:3px 8px;border-radius:6px;border:1px solid #dc2626;background:#fef2f2;cursor:pointer;'>🗑️</button>
-                    </form>
-                </td>
-            </tr>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    # Cierre de tabla
-    st.markdown("</table>", unsafe_allow_html=True)
-
-    # =========================================================
-    # ⬇️ Exportar CSV
-    # =========================================================
-    df = pd.DataFrame(clientes)
-    buff = io.StringIO()
-    df.to_csv(buff, index=False)
-    st.download_button(
-        "⬇️ Exportar CSV",
-        buff.getvalue(),
-        file_name=f"clientes_{date.today().isoformat()}.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
 
 
 from datetime import date

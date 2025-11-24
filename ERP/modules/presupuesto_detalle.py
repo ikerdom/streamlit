@@ -73,6 +73,8 @@ def añadir_linea_presupuesto(supabase, presupuestoid: int, clienteid: int, fech
                 cantidad=float(cantidad),
                 fecha=fecha_calc,     # ← date object
             )
+            st.warning(precio_linea)  # DEBUG TEMPORAL
+
 
             unit_bruto = float(precio_linea.get("unit_bruto", prod.get("precio_generico", 0.0)))
             dto_motor  = float(precio_linea.get("descuento_pct", 0.0))

@@ -88,9 +88,10 @@ def render_producto_lista(supabase):
     if modo == "Árbol":
         render_arbol_productos(supabase)
         st.markdown("---")
-        if st.button("⬅️ Volver al catálogo", use_container_width=True):
+        if st.button("⬅️ Volver al catálogo", key="volver_catalogo_lista", use_container_width=True):
             st.session_state["modo_producto"] = "Catálogo"
             st.rerun()
+
         return
 
     # =====================================================
@@ -121,27 +122,26 @@ def render_producto_lista(supabase):
         familia_sel = st.selectbox("📂 Familia", ["Todas"] + list(familias.keys()), key="prod_familia")
     with c3:
         tipo_sel = st.selectbox("🏷️ Tipo", ["Todos"] + list(tipos.keys()), key="prod_tipo")
-
-    with st.expander("⚙️ Opciones avanzadas de filtrado"):
-        c4, c5 = st.columns([2, 2])
-        with c4:
-            estado_sel = st.selectbox("Estado", ["Todos"] + list(estados.keys()), key="prod_estado_adv")
-        with c5:
-            ordenar = st.selectbox(
-                "Ordenar por",
-                ["nombre ASC", "nombre DESC", "fecha_publicacion DESC", "precio_generico DESC"],
-                key="prod_sort_adv"
-            )
-
+    # ❌ Eliminamos completamente el expander de filtros avanzados
+    # (ya no lo necesitamos y no aporta nada)
+    # ❌ Eliminamos completamente el expander de filtros avanzados
+    # (ya no lo necesitamos y no aporta nada)
 
     st.divider()
 
+    # 🔄 Nueva fila para usar 'c4' y evitar errores
+    c4, _ = st.columns([1, 5])
     with c4:
         view = st.radio("Vista", ["Tarjetas", "Tabla"], horizontal=True, key="prod_view")
 
+    # ------------------------------
+    # 🎛️ Filtros principales (limpios)
+    # ------------------------------
     c5, c6, c7 = st.columns([2, 2, 2])
+
     with c5:
         estado_sel = st.selectbox("Estado", ["Todos"] + list(estados.keys()), key="prod_estado")
+
     with c6:
         ordenar = st.selectbox(
             "Ordenar por",
@@ -152,12 +152,10 @@ def render_producto_lista(supabase):
             ],
             key="prod_sort",
         )
+
     with c7:
-        if st.button("➕ Nuevo producto", use_container_width=True):
-            st.session_state["producto_editar_id"] = None
-            st.session_state["producto_show_form"] = True
-            st.session_state["show_producto_modal"] = False
-            st.rerun()
+        # Eliminado el botón de nuevo producto
+        st.write("")
 
     st.markdown("---")
 
@@ -246,9 +244,9 @@ def render_producto_lista(supabase):
     if st.session_state.get("show_producto_modal"):
         render_producto_modal(supabase)
 
-
 def _render_card_producto(p, supabase):
     from modules.producto_models import get_tipo_label, get_familia_label, get_estado_label
+
     nombre, titulo = _safe(p.get("nombre")), _safe(p.get("titulo"))
     precio = p.get("precio_generico")
     precio_str = f"{float(precio):.2f} €" if isinstance(precio, (int, float)) else "-"
@@ -267,7 +265,11 @@ def _render_card_producto(p, supabase):
                 <div style="flex:1;">
                     <div style="font-weight:600;font-size:1.1rem;">{nombre}</div>
                     <div style="color:#666;">{titulo}</div>
-                    <div style="margin-top:4px;">💶 <b>{precio_str}</b> | 🏷️ {tipo_lbl} · {familia_lbl} | ⚙️ {estado_lbl}</div>
+                    <div style="margin-top:4px;">
+                        💶 <b>{precio_str}</b> |
+                        🏷️ {tipo_lbl} · {familia_lbl} |
+                        ⚙️ {estado_lbl}
+                    </div>
                 </div>
             </div>
         </div>
@@ -275,13 +277,15 @@ def _render_card_producto(p, supabase):
         unsafe_allow_html=True,
     )
 
-    a, c = st.columns([1, 1])
-    if a.button("📄 Ficha", key=f"ficha_prod_{p['productoid']}"):
+    # Botón único ancho: Ver ficha
+    if st.button(
+        "📄 Ver ficha",
+        key=f"ficha_prod_{p['productoid']}",
+        use_container_width=True
+    ):
         st.session_state["producto_modal_id"] = p["productoid"]
         st.session_state["show_producto_modal"] = True
         st.rerun()
-    # Duplicar (deshabilitado por ahora)
-    c.button("📑 Duplicar", key=f"dup_prod_{p['productoid']}", disabled=True)
 
 
 def _render_tabla_productos(productos):
@@ -336,19 +340,11 @@ def render_producto_modal(supabase):
     st.markdown("---")
     st.markdown("### 📘 Ficha del producto")
 
-    # Botones superiores
-    c1, c2 = st.columns([2, 1])
-    if c1.button("⬅️ Cerrar ficha", key="close_modal_btn"):
+    # Botón superior: solo cerrar ficha (sin eliminar)
+    if st.button("⬅️ Cerrar ficha", key=f"close_modal_{pid}", use_container_width=True):
         st.session_state["show_producto_modal"] = False
         st.rerun()
-    if c2.button("🗑️ Eliminar producto", key=f"delete_prod_{pid}"):
-        try:
-            supabase.table("producto").delete().eq("productoid", pid).execute()
-            st.success("🗑️ Producto eliminado correctamente.")
-            st.session_state["show_producto_modal"] = False
-            st.rerun()
-        except Exception as e:
-            st.error(f"❌ Error al eliminar: {e}")
+
 
     # Cargar datos
     try:
@@ -362,28 +358,65 @@ def render_producto_modal(supabase):
     impuesto_lbl = get_impuesto_label(p.get("impuestoid"), supabase)
     estado_lbl = get_estado_label(p.get("estado_productoid"), supabase)
 
-    # 🔎 Detalle (solo lectura)
+    # 🔎 Detalle (solo lectura mejorado)
     with st.expander("🔎 Detalle del producto", expanded=True):
+
+        def field(label, value):
+            """Renderiza un campo SOLO si tiene contenido."""
+            if value not in (None, "", "null"):
+                st.write(f"**{label}:** {value}")
+
         cols = st.columns([1, 2])
+
+        # ------------------------
+        # 📘 Columna izquierda
+        # ------------------------
         with cols[0]:
-            if p.get("portada_url"):
-                st.image(p["portada_url"], use_container_width=True)
-            st.write("**💶 Precio genérico:**", p.get("precio_generico"))
-            st.write("**🧾 Impuesto:**", impuesto_lbl)
-            st.write("**⚙️ Estado:**", estado_lbl)
-            st.write("**📅 Fecha publicación:**", p.get("fecha_publicacion"))
-            st.write("**👁️ Público:**", "Sí" if p.get("publico") else "No")
+            portada = p.get("portada_url")
+            if portada:
+                st.image(portada, use_container_width=True)
+
+            # Precio
+            if p.get("precio_generico") not in (None, "", 0):
+                st.write("**💶 Precio:**", f"{float(p['precio_generico']):.2f} €")
+
+            # Estado
+            estado_lbl = get_estado_label(p.get("estado_productoid"), supabase)
+            if estado_lbl and estado_lbl != "-":
+                st.write("**⚙️ Estado:**", estado_lbl)
+
+            # Fecha publicación
+            if p.get("fecha_publicacion"):
+                st.write("**📅 Publicación:**", p["fecha_publicacion"])
+
+            # Público
+            if p.get("publico") is not None:
+                st.write("**👁️ Público:**", "Sí" if p["publico"] else "No")
+
+        # ------------------------
+        # 📄 Columna derecha
+        # ------------------------
         with cols[1]:
-            st.write("**Nombre:**", p.get("nombre"))
-            st.write("**Título:**", p.get("titulo"))
-            st.write("**Referencia:**", p.get("referencia"))
-            st.write("**ISBN:**", p.get("isbn"))
-            st.write("**EAN:**", p.get("ean"))
-            st.write("**Familia:**", familia_lbl)
-            st.write("**Tipo:**", tipo_lbl)
-            st.write("**Versatilidad:**", p.get("versatilidad") or "-")
-            st.write("**Sinopsis:**")
-            st.info(p.get("sinopsis") or "-")
+            field("Nombre", p.get("nombre"))
+            field("Título", p.get("titulo"))
+            field("Referencia", p.get("referencia"))
+            field("ISBN", p.get("isbn"))
+            field("EAN", p.get("ean"))
+            field("Familia", familia_lbl)
+            field("Tipo", tipo_lbl)
+            field("Cuerpo certificado", p.get("cuerpo_certificado"))
+
+            # Autor(es)
+            autores = p.get("autores")
+            autores = autores if autores not in (None, "", "null") else "Sin autor"
+            st.write(f"**Autor:** {autores}")
+
+            field("Versatilidad", p.get("versatilidad"))
+
+            # SINOPSIS → solo si existe
+            if p.get("sinopsis") not in (None, "", "null"):
+                st.markdown("**📝 Sinopsis:**")
+                st.info(p["sinopsis"])
 
     # ⚙️ Ajustes rápidos (solo campos permitidos)
     st.markdown("---")

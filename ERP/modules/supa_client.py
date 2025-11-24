@@ -1,12 +1,12 @@
+# modules/supa_client.py
 from supabase import create_client
 import os
 
 # =====================================
-# 🔧 CONFIG SUPABASE (segura y flexible)
+# 🔧 CONFIG SUPABASE
 # =====================================
-
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://gqhrbvusvcaytcbnusdx.supabase.co")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdxaHJidnVzdmNheXRjYm51c2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk0MzM3MDQsImV4cCI6MjA3NTAwOTcwNH0.y3018JLs9A08sSZKHLXeMsITZ3oc4s2NDhNLxWqM9Ag")
+SUPABASE_URL = "https://gqhrbvusvcaytcbnusdx.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdxaHJidnVzdmNheXRjYm51c2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk0MzM3MDQsImV4cCI6MjA3NTAwOTcwNH0.y3018JLs9A08sSZKHLXeMsITZ3oc4s2NDhNLxWqM9Ag"
 
 # =====================================
 # 🔹 OPCIÓN 1 — Streamlit (modo app)

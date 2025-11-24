@@ -20,7 +20,6 @@ class NodoCategoria:
 # ======================================================
 # 📦 CARGA DE ÁRBOL (corregido: _supabase)
 # ======================================================
-
 @st.cache_data(ttl=300)
 def load_arbol_productos(_supabase) -> List[NodoCategoria]:
     """Carga la jerarquía desde producto_categoria_arbol."""

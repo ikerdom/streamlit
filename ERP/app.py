@@ -38,6 +38,13 @@ from modules.impuesto_lista import render_impuesto_lista
 from modules.tarifa_admin import render_tarifa_admin
 from modules.incidencia_lista import render_incidencia_lista
 from modules.simulador_pedido import render_simulador_pedido
+from modules.campania.campania_lista import render as render_campania_lista
+from modules.campania.campania_form import render as render_campania_form
+from modules.campania.campania_progreso import render as render_campania_progreso
+from modules.campania.campania_detalle import render as render_campania_detalle
+from modules.campania.campania_informes import render as render_campania_informes
+from modules.campania.campania_router import render_campania_router
+
 
 
 # ======================================================
@@ -57,6 +64,8 @@ supabase = get_supabase_client()
 try:
     supabase.table("cliente").select("clienteid").limit(1).execute()
     st.sidebar.success("✅ Conectado a Supabase")
+    st.session_state["supa"] = supabase      # 🔸 AÑADIR ESTO
+
 except Exception as e:
     st.sidebar.error("❌ Error de conexión con Supabase")
     st.sidebar.caption(str(e))
@@ -114,6 +123,7 @@ if tipo_usuario == "trabajador":
         "🏷️ Gestión de tarifas",
         "🧮 Simulador de tarifas",
         "🗓️ Calendario CRM",
+        "📣 Campañas",              # 👈 NUEVO
         "💬 Historial / Comunicación",
         "⚠️ Incidencias",
         "📈 Diagramas y métricas",
@@ -220,6 +230,12 @@ elif opcion == "🧮 Simulador de tarifas":
 elif opcion == "🗓️ Calendario CRM":
     st.sidebar.subheader("🗓️ Acciones y calendario")
     render_crm_acciones(supabase)
+
+# 📣 CAMPAÑAS
+elif opcion == "📣 Campañas":
+    st.sidebar.subheader("📣 Campañas comerciales")
+    render_campania_router(supabase)
+
 
 # 💬 HISTORIAL
 elif opcion == "💬 Historial / Comunicación":

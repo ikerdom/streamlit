@@ -167,15 +167,20 @@ def _enrich_reglas_for_table(reglas: List[dict], *, tarifas, clientes, grupos, p
     return out
 
 # ============================================================
-# UI principal (parte 1)
+# UI principal (parte 1) — TARIFA ADMIN
 # ============================================================
 def render_tarifa_admin(supabase):
     st.header("🏷️ Administración de Tarifas")
-    st.caption("Consulta, habilita/deshabilita y asigna tarifas por cliente, grupo o familia de producto.")
+    st.caption("Consulta, habilita/deshabilita y gestiona reglas de tarifas por cliente, grupo o familia.")
 
+    # ============================
+    # 📦 Cargar catálogos
+    # ============================
     tarifas, clientes, grupos, productos, familias = _load_catalogos(supabase)
 
-    # ---------------- FILTROS ----------------
+    # ============================
+    # 🔍 FILTROS
+    # ============================
     with st.expander("🔎 Filtros", expanded=True):
         c1, c2, c3 = st.columns(3)
         with c1:
@@ -193,13 +198,15 @@ def render_tarifa_admin(supabase):
 
         show_disabled = st.toggle("👁️ Mostrar también deshabilitadas", value=False)
 
-        clienteid = clientes.get(cli_sel) if cli_sel != "(Todos)" else None
-        grupoid = grupos.get(grp_sel) if grp_sel != "(Todos)" else None
-        tarifaid_filter = tarifas.get(tar_sel) if tar_sel != "(Todas)" else None
-        productoid = productos.get(prod_sel) if prod_sel != "(Todos)" else None
-        familiaid = familias.get(fam_sel) if fam_sel != "(Todas)" else None
+        clienteid    = clientes.get(cli_sel) if cli_sel != "(Todos)" else None
+        grupoid      = grupos.get(grp_sel) if grp_sel != "(Todos)" else None
+        tarifaid_fil = tarifas.get(tar_sel) if tar_sel != "(Todas)" else None
+        productoid   = productos.get(prod_sel) if prod_sel != "(Todos)" else None
+        familiaid    = familias.get(fam_sel) if fam_sel != "(Todas)" else None
 
-    # ---------------- CONSULTA ----------------
+    # ============================
+    # 📥 CARGA DE REGLAS
+    # ============================
     reglas = _fetch_reglas_effective(
         supabase,
         clienteid=clienteid,
@@ -208,8 +215,8 @@ def render_tarifa_admin(supabase):
         familia_productoid=familiaid,
     )
 
-    if tarifaid_filter:
-        reglas = [r for r in reglas if r.get("tarifaid") == tarifaid_filter]
+    if tarifaid_fil:
+        reglas = [r for r in reglas if r.get("tarifaid") == tarifaid_fil]
     if not show_disabled:
         reglas = [r for r in reglas if r.get("habilitada")]
 
@@ -225,10 +232,14 @@ def render_tarifa_admin(supabase):
     st.markdown("---")
     st.subheader("📋 Reglas aplicables")
 
+    # ============================
+    # 🖼️ TABLA DE VISUALIZACIÓN
+    # ============================
     if not rows:
         st.info("No hay reglas que coincidan con los filtros seleccionados.")
     else:
         df = pd.DataFrame(rows)
+
         edited = st.data_editor(
             df,
             use_container_width=True,
@@ -240,51 +251,103 @@ def render_tarifa_admin(supabase):
         for idx, row in edited.iterrows():
             orig = reglas[idx]
             if bool(row["Habilitada"]) != bool(orig["habilitada"]):
-                supabase.table("tarifa_regla").update({"habilitada": bool(row["Habilitada"])}).eq("tarifa_reglaid", orig["tarifa_reglaid"]).execute()
-                st.toast(f"🔁 Regla {orig['tarifa_reglaid']} actualizada: habilitada = {row['Habilitada']}")
+                supabase.table("tarifa_regla").update({
+                    "habilitada": bool(row["Habilitada"])
+                }).eq("tarifa_reglaid", orig["tarifa_reglaid"]).execute()
+
+                st.toast(f"🔁 Regla {orig['tarifa_reglaid']} actualizada.")
 
         habil = len([r for r in reglas if r.get("habilitada")])
-        deshab = len(reglas) - habil
-        st.caption(f"✅ {habil} habilitadas · 🚫 {deshab} deshabilitadas · Total {len(reglas)}")
+        total = len(reglas)
+        st.caption(f"✅ {habil} habilitadas · 🚫 {total - habil} deshabilitadas · Total {total}")
 
-        # ---------------- MANTENIMIENTO ----------------
+        # ============================
+        # 🧰 MANTENIMIENTO
+        # ============================
         with st.expander("🧰 Mantenimiento de reglas", expanded=False):
-            st.caption("Duplica o elimina reglas directamente desde aquí.")
-            ids_disponibles = [r["tarifa_reglaid"] for r in reglas]
-            if not ids_disponibles:
-                st.info("No hay reglas seleccionables.")
-            else:
-                regla_sel = st.selectbox("Selecciona una regla", ids_disponibles)
-                colm1, colm2 = st.columns(2)
-                with colm1:
-                    if st.button("🧬 Duplicar regla seleccionada"):
-                        try:
-                            orig = next(r for r in reglas if r["tarifa_reglaid"] == regla_sel)
-                            nuevo = orig.copy()
-                            nuevo.pop("tarifa_reglaid", None)
-                            nuevo["fecha_inicio"] = date.today().isoformat()
-                            nuevo["fecha_fin"] = (date(2999, 12, 31)).isoformat()
-                            supabase.table("tarifa_regla").insert(nuevo).execute()
-                            st.success(f"✅ Regla {regla_sel} duplicada correctamente.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error al duplicar: {e}")
-                with colm2:
-                    if st.button("🗑️ Eliminar regla seleccionada"):
-                        try:
-                            supabase.table("tarifa_regla").delete().eq("tarifa_reglaid", regla_sel).execute()
-                            st.success(f"🗑️ Regla {regla_sel} eliminada correctamente.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error al eliminar: {e}")
 
-    # ---------------- ASIGNAR TARIFA ----------------
+            st.caption("Modifica la vigencia de una regla o elimínala permanentemente.")
+
+            if not reglas:
+                st.info("No hay reglas disponibles.")
+            else:
+                # ---- Construcción de etiquetas ----------------
+                opciones = []
+                for r in reglas:
+                    t = _label_from(tarifas,   r.get("tarifaid"))
+                    c = _label_from(clientes, r.get("clienteid"))
+                    g = _label_from(grupos,   r.get("grupoid"))
+                    p = _label_from(productos,r.get("productoid"))
+                    f = _label_from(familias, r.get("familia_productoid"))
+
+                    vig = f"{_safe(r.get('fecha_inicio'))} → {_safe(r.get('fecha_fin'))}"
+
+                    etiqueta = f"[{r['tarifa_reglaid']}] {t} · C:{c} · G:{g} · P:{p} · F:{f} · {vig}"
+                    opciones.append((etiqueta, r["tarifa_reglaid"]))
+
+                choice_label = st.selectbox(
+                    "Selecciona una regla",
+                    [lbl for (lbl, _) in opciones],
+                )
+
+                regla_sel = next(v for (lbl, v) in opciones if lbl == choice_label)
+                regla_obj = next(r for r in reglas if r["tarifa_reglaid"] == regla_sel)
+
+                # ---- Vigencia ----------------
+                st.markdown("### 📅 Vigencia")
+                st.write(f"**Inicio actual:** {_safe(regla_obj.get('fecha_inicio'))}")
+
+                # Fecha fin — default inteligente
+                try:
+                    default_fin = (
+                        date.fromisoformat(regla_obj["fecha_fin"])
+                        if regla_obj.get("fecha_fin")
+                        else date(2999, 12, 31)
+                    )
+                except Exception:
+                    default_fin = date(2999, 12, 31)
+
+                nueva_fin = st.date_input(
+                    "Nueva fecha fin",
+                    value=default_fin,
+                    key=f"new_fin_{regla_sel}",
+                )
+
+                colA, colB = st.columns(2)
+
+                # ---- Guardar vigencia ----
+                with colA:
+                    if st.button("💾 Guardar vigencia", use_container_width=True):
+                        try:
+                            supabase.table("tarifa_regla").update({
+                                "fecha_fin": nueva_fin.isoformat()
+                            }).eq("tarifa_reglaid", regla_sel).execute()
+                            st.success("✅ Vigencia actualizada.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error guardando: {e}")
+
+                # ---- Eliminar regla ----
+                with colB:
+                    if st.button("🗑️ Eliminar regla", use_container_width=True):
+                        try:
+                            supabase.table("tarifa_regla").delete() \
+                                .eq("tarifa_reglaid", regla_sel).execute()
+
+                            st.success("🗑️ Regla eliminada.")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error eliminando: {e}")
+    # ============================
+    # 🧩 ASIGNAR TARIFA
+    # ============================
     st.markdown("---")
     st.subheader("🧩 Asignar tarifa")
 
     st.caption(
-        "Selecciona una jerarquía de asignación (5 niveles). "
-        "Las tarifas se aplican según prioridad definida por el motor de precios."
+        "La tarifa se aplicará automáticamente según la jerarquía:\n"
+        "1) Prod+Cliente = Tarifa 25 · 2) Fam+Cliente = Tarifa 20 · "
+        "3) Prod+Grupo = Tarifa 15 · 4) Fam+Grupo = Tarifa 10 · 5) General = Tarifa 5"
     )
 
     jerarquias = [
@@ -296,35 +359,53 @@ def render_tarifa_admin(supabase):
     ]
     pat = st.selectbox("Jerarquía", jerarquias)
 
-    col1, col2 = st.columns(2)
-    with col1:
+    # MAPEO AUTOMÁTICO DE TARIFAS
+    TARIFA_BY_JERARQUIA = {
+        "1": 1,
+        "2": 2,
+        "3": 3,
+        "4": 4,
+        "5": 5,
+    }
+
+    numero = pat.split(")")[0]  # "1", "2", "3", "4", "5"
+    t_id = TARIFA_BY_JERARQUIA[numero]
+
+    colA, colB = st.columns(2)
+    with colA:
         fecha_desde = st.date_input("📅 Vigente desde", value=date.today())
-    with col2:
+    with colB:
         fecha_hasta = st.date_input("📅 Vigente hasta (opcional)", value=None)
 
-    sin_fin = st.checkbox("⏳ Sin fecha final (usar 2999-12-31)", value=False)
-    if sin_fin:
+    if st.checkbox("⏳ Sin fecha final", value=False):
         fecha_hasta = date(2999, 12, 31)
 
+    # ===== SELECCIÓN ENTIDADES SEGÚN JERARQUÍA =====
     sel_cliente = sel_grupo = sel_producto = sel_familia = None
-    if pat.startswith("1)"):
+
+    if numero == "1":
         sel_cliente = st.selectbox("Cliente", list(clientes.keys()))
         sel_producto = st.selectbox("Producto", list(productos.keys()))
-    elif pat.startswith("2)"):
+
+    elif numero == "2":
         sel_cliente = st.selectbox("Cliente", list(clientes.keys()))
         sel_familia = st.selectbox("Familia", list(familias.keys()))
-    elif pat.startswith("3)"):
+
+    elif numero == "3":
         sel_grupo = st.selectbox("Grupo", list(grupos.keys()))
         sel_producto = st.selectbox("Producto", list(productos.keys()))
-    elif pat.startswith("4)"):
+
+    elif numero == "4":
         sel_grupo = st.selectbox("Grupo", list(grupos.keys()))
         sel_familia = st.selectbox("Familia", list(familias.keys()))
-    elif pat.startswith("5)"):
+
+    elif numero == "5":
         sel_cliente = st.selectbox("Cliente", list(clientes.keys()))
 
+
+    # ===== GUARDAR =====
     if st.button("💾 Guardar asignación", type="primary", use_container_width=True):
         try:
-            t_id = TARIFA_GENERAL_ID
             payload = {
                 "tarifaid": t_id,
                 "habilitada": True,
@@ -333,29 +414,32 @@ def render_tarifa_admin(supabase):
             if fecha_hasta:
                 payload["fecha_fin"] = fecha_hasta.isoformat()
 
-            if pat.startswith("1)"):
-                payload["clienteid"] = clientes[sel_cliente]
+            if numero == "1":
+                payload["clienteid"]  = clientes[sel_cliente]
                 payload["productoid"] = productos[sel_producto]
-            elif pat.startswith("2)"):
+
+            elif numero == "2":
                 payload["clienteid"] = clientes[sel_cliente]
                 payload["familia_productoid"] = familias[sel_familia]
-            elif pat.startswith("3)"):
+
+            elif numero == "3":
                 payload["grupoid"] = grupos[sel_grupo]
                 payload["productoid"] = productos[sel_producto]
-            elif pat.startswith("4)"):
+
+            elif numero == "4":
                 payload["grupoid"] = grupos[sel_grupo]
                 payload["familia_productoid"] = familias[sel_familia]
-            elif pat.startswith("5)"):
+
+            elif numero == "5":
                 supabase.table("cliente_tarifa").insert({
                     "clienteid": clientes[sel_cliente],
                     "tarifaid": t_id,
                     "fecha_desde": fecha_desde.isoformat(),
                     "fecha_hasta": fecha_hasta.isoformat() if fecha_hasta else None,
                 }).execute()
-                st.success("✅ Tarifa general asignada al cliente.")
+                st.success("✅ Tarifa general asignada.")
                 st.rerun()
 
-            # inserción robusta
             _insert_tarifa_regla(supabase, payload)
             st.success("✅ Asignación registrada correctamente.")
             st.rerun()
@@ -367,8 +451,10 @@ def render_tarifa_admin(supabase):
             if "duplicate key" in msg:
                 st.info("ℹ️ Ya existe una regla equivalente para ese objetivo y rango de fechas.")
             else:
-                st.error(f"❌ Error guardando asignación: {e}")
+                st.error(f"❌ Error: {e}")
 
-    # ---------------- CREAR TARIFA (bloqueado) ----------------
+    # ============================
+    # ❌ CREAR TARIFA (bloqueado)
+    # ============================
     with st.expander("➕ Crear NUEVA tarifa (bloqueado)", expanded=False):
         st.info("Funcionalidad deshabilitada por política interna.")

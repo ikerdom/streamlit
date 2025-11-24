@@ -177,7 +177,11 @@ def render_historial(supabase):
 
     if not mensajes:
         st.info("No hay comunicaciones registradas todavía.")
+        # ❗️ NO hacemos return para permitir mostrar el historial de LOG SQL
+        st.markdown("---")
+        render_log_cambios(supabase)
         return
+
 
     # ======================================================
     # 📈 RESUMEN
@@ -255,10 +259,177 @@ def render_historial(supabase):
                     st.success("✅ Acción CRM creada correctamente.")
                 except Exception as e:
                     st.error(f"❌ Error al crear acción CRM: {e}")
+# ================================
+    # 👁️ VISOR DEL LOG SQL (botón)
+    # ================================
+    st.subheader("🧾 Cambios en base de datos")
+
+    if st.button("👁️ Ver historial de cambios (LOG SQL)", use_container_width=True):
+        st.session_state["mostrar_log_sql"] = True
+
+    if st.session_state.get("mostrar_log_sql"):
+        render_log_cambios(supabase)
 
     st.markdown("---")
     st.caption("📞 Historial de comunicaciones · EnteNova Gnosis · Orbe")
 
+# ======================================================
+# 🧾 HISTORIAL DE CAMBIOS (LOG SQL)
+# ======================================================
+
+import json
+import pandas as pd
+
+def render_log_cambios(supabase):
+    st.markdown("### 🧾 Historial de cambios en base de datos")
+
+    with st.expander("🔍 Ver historial de cambios (Log SQL)", expanded=False):
+
+        # =============================
+        # FILTROS
+        # =============================
+        col1, col2, col3 = st.columns([2, 2, 2])
+        with col1:
+            tabla_sel = st.selectbox(
+                "📦 Tabla",
+                ["Todas", "producto", "cliente", "pedido", "crm_actuacion", "mensaje_contacto"],
+                index=0
+            )
+        with col2:
+            accion_sel = st.selectbox("⚙️ Acción", ["Todas", "INSERT", "UPDATE", "DELETE"], index=0)
+        with col3:
+            buscar = st.text_input("🔎 Buscar ID, campo o texto")
+
+        st.markdown("---")
+
+        # =============================
+        # QUERY BASE
+        # =============================
+        try:
+            q = (
+                supabase.table("log_cambio")
+                .select("logid, tabla, registro_id, accion, tipo_log, usuario, trabajadorid, fecha, detalle")
+                .order("fecha", desc=True)
+                .limit(300)
+            )
+
+            if tabla_sel != "Todas":
+                q = q.eq("tabla", tabla_sel)
+
+            if accion_sel != "Todas":
+                q = q.eq("accion", accion_sel)
+
+            logs = q.execute().data or []
+
+            # Filtro manual por texto (por si se busca ean, productoid, etc.)
+            if buscar:
+                buscar_low = buscar.lower()
+                logs = [
+                    l for l in logs
+                    if buscar_low in json.dumps(l, default=str).lower()
+                ]
+
+        except Exception as e:
+            st.error(f"❌ Error cargando historial de cambios: {e}")
+            return
+
+        if not logs:
+            st.info("No hay cambios registrados con esos filtros.")
+            return
+
+        # =============================
+        # LISTADO
+        # =============================
+        for log in logs:
+            lid = log.get("logid")
+            tabla = log.get("tabla", "-")
+            accion = log.get("accion", "-")
+            rid = log.get("registro_id", "-")
+            fecha = log.get("fecha", "-")
+            detalle = log.get("detalle")
+
+            # Título del expander
+            titulo = f"📌 [{tabla.upper()}] {accion} — ID {rid} — {fecha}"
+
+            with st.expander(titulo, expanded=False):
+
+                # --------------------------------------
+                # Mostrar JSON old/new
+                # --------------------------------------
+                try:
+                    parsed = detalle if isinstance(detalle, dict) else json.loads(detalle)
+                except:
+                    parsed = {"detalle": detalle}
+
+                colA, colB = st.columns(2)
+                with colA:
+                    st.markdown("#### 📥 Nuevo valor")
+                    if "new" in parsed and parsed["new"]:
+                        st.json(parsed["new"])
+                    else:
+                        st.write("-")
+
+                with colB:
+                    st.markdown("#### 📤 Valor anterior")
+                    if "old" in parsed and parsed["old"]:
+                        st.json(parsed["old"])
+                    else:
+                        st.write("-")
+
+                st.caption(f"🆔 Log #{lid} — Usuario: {log.get('usuario') or '-'} — Trabajador {log.get('trabajadorid') or '-'}")
+
+
+def _build_resumen_cambios(new_data, old_data, campos_clave=None):
+    """
+    Devuelve dos listas de strings:
+    - cambios en campos clave
+    - cambios en el resto de campos
+    usando la estructura detalle = {"new": {...}, "old": {...}}
+    """
+    if campos_clave is None:
+        campos_clave = []
+
+    resumen_clave = []
+    resumen_otros = []
+
+    if not isinstance(new_data, dict):
+        return resumen_clave, resumen_otros
+
+    # old_data puede ser None (INSERT)
+    old_data = old_data or {}
+
+    # Conjunto de todas las claves
+    keys = set(new_data.keys()) | set(old_data.keys())
+
+    for k in sorted(keys):
+        nuevo = new_data.get(k)
+        viejo = old_data.get(k)
+
+        # Normalizar representación para comparar
+        if isinstance(nuevo, float) and isinstance(viejo, float):
+            iguales = abs(nuevo - viejo) < 1e-9
+        else:
+            iguales = (str(nuevo) == str(viejo))
+
+        if iguales:
+            continue  # no ha cambiado
+
+        # Formateo bonico
+        def fmt(v):
+            if v is None:
+                return "∅"
+            if isinstance(v, bool):
+                return "Sí" if v else "No"
+            return str(v)
+
+        linea = f"**{k}**: `{fmt(viejo)}` → `{fmt(nuevo)}`"
+
+        if k in campos_clave:
+            resumen_clave.append(linea)
+        else:
+            resumen_otros.append(linea)
+
+    return resumen_clave, resumen_otros
 
 # ======================================================
 # 🔧 Helper para iconos
@@ -272,3 +443,5 @@ def icono_tipo(tipo: str) -> str:
         "otro": "🗒️",
     }
     return iconos.get(tipo, "🗒️")
+
+
