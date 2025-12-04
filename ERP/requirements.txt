@@ -23,5 +23,4 @@ seaborn==0.13.2
 plotly==5.19.0
 
 # === UTILIDADES ===
-python-dotenv==1.0.1
 requests==2.32.3
