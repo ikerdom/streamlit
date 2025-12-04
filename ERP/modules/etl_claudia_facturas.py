@@ -80,7 +80,6 @@ def ensure_base_records(supa):
         }).execute()
         print("✅ Cliente base creado (ID=1)")
 
-
 # ============================================
 # 1) STAGING → FACTURA
 # ============================================
@@ -98,6 +97,15 @@ def transform_stg_factura_to_factura():
     for f in facturas:
         rows.append({
             "id_origen": f.get("id_origen"),
+
+            # 🆕 CAMPOS NUEVOS
+            "tipo_documento": f.get("tipo_documento"),
+            "factura_serie": f.get("factura_serie"),
+            "factura_numero": f.get("factura_numero"),
+            "nombre_empresa": f.get("nombre_empresa"),
+            "tipo_tercero": f.get("tipo_tercero"),
+
+            # Campos que ya teníamos
             "nombre_cliente": f.get("nombre_cliente"),
             "factura_estado": f.get("factura_estado"),
             "forma_pago": f.get("forma_pago"),
@@ -118,6 +126,7 @@ def transform_stg_factura_to_factura():
         total += len(batch)
 
     print(f"✅ {total} facturas upsertadas en factura.")
+
 
 
 # ============================================

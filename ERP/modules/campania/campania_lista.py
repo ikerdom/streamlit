@@ -1,19 +1,27 @@
 import streamlit as st
 from datetime import date
+import pandas as pd
+
+from modules.campania.campania_nav import render_campania_nav
 
 
 # ======================================================
-# 📣 LISTADO DE CAMPAÑAS — modo real sin utils
+# 📋 LISTADO PRINCIPAL DE CAMPAÑAS (Versión profesional)
 # ======================================================
+def render(supa):
 
-def render(supabase):
+    # ==========================
+    # NAV SUPERIOR
+    # ==========================
+    campaniaid = st.session_state.get("campaniaid")
+    render_campania_nav(active_view="lista", campaniaid=campaniaid)
 
     st.title("📣 Campañas comerciales")
-    st.caption("Gestiona campañas, consulta su progreso y accede a informes.")
+    st.caption("Gestiona campañas, consulta su avance y accede a informes.")
     st.divider()
 
     # ======================================================
-    # ➕ NUEVA CAMPAÑA
+    # ➕ BOTÓN CREAR NUEVA CAMPAÑA
     # ======================================================
     if st.button("➕ Crear nueva campaña", use_container_width=True):
         st.session_state["campaniaid"] = None
@@ -26,38 +34,52 @@ def render(supabase):
     # ======================================================
     with st.expander("🎛️ Filtros avanzados", expanded=False):
 
+        # --- Estado & Tipo ---
         c1, c2 = st.columns(2)
+
         with c1:
             estados = ["Todos", "borrador", "activa", "pausada", "finalizada", "cancelada"]
             estado_sel = st.selectbox("Estado", estados)
 
         with c2:
             tipos = ["Todos", "llamada", "email", "whatsapp", "visita"]
-            tipo_sel = st.selectbox("Tipo de acción", tipos)
+            tipo_sel = st.selectbox("Tipo de acción principal", tipos)
 
-        nombre_busqueda = st.text_input("Buscar por nombre o descripción", "")
+        # --- Texto ---
+        nombre_busqueda = st.text_input("Buscar por nombre o descripción")
 
+        # --- Fechas ---
         c3, c4 = st.columns(2)
+
         with c3:
-            fecha_min = st.date_input("Fecha inicio mínima", value=None)
+            usar_fecha_min = st.checkbox("Filtrar por fecha de inicio mínima")
+            fecha_min = (
+                st.date_input("Fecha inicio mínima", value=date.today())
+                if usar_fecha_min else None
+            )
+
         with c4:
-            fecha_max = st.date_input("Fecha fin máxima", value=None)
+            usar_fecha_max = st.checkbox("Filtrar por fecha fin máxima")
+            fecha_max = (
+                st.date_input("Fecha fin máxima", value=date.today())
+                if usar_fecha_max else None
+            )
 
-        progreso_min = st.slider(
-            "Progreso mínimo (%)",
-            0, 100, 0
-        )
-
+        # --- Reset ---
         if st.button("🔄 Limpiar filtros"):
-            st.session_state.pop("filtros", None)
+            for key in list(st.session_state.keys()):
+                if key.startswith("estado") or key.startswith("tipo") or key in (
+                    "nombre_busqueda", "usar_fecha_min", "usar_fecha_max"
+                ):
+                    st.session_state.pop(key, None)
             st.rerun()
 
     # ======================================================
-    # 🔄 CARGA DE CAMPAÑAS
+    # 🔄 CARGA DE CAMPAÑAS DESDE SUPABASE
     # ======================================================
     try:
         resp = (
-            supabase.table("campania")
+            supa.table("campania")
             .select("*")
             .order("fecha_inicio", desc=True)
             .execute()
@@ -68,41 +90,83 @@ def render(supabase):
         return
 
     # ======================================================
-    # 🧹 APLICAR FILTROS
+    # 🧹 FILTROS APLICADOS
     # ======================================================
-
     def aplicar_filtros(c):
+
         # Estado
-        if estado_sel != "Todos" and c["estado"] != estado_sel:
+        if estado_sel != "Todos" and c.get("estado") != estado_sel:
             return False
 
-        # Tipo
-        if tipo_sel != "Todos" and c["tipo_accion"] != tipo_sel:
+        # Tipo acción
+        if tipo_sel != "Todos" and c.get("tipo_accion") != tipo_sel:
             return False
 
-        # Búsqueda
+        # Búsqueda por texto
         if nombre_busqueda:
-            txt = f"{c['nombre']} {c.get('descripcion','')}".lower()
-            if nombre_busqueda.lower() not in txt:
+            texto = f"{c.get('nombre','')} {c.get('descripcion','')}".lower()
+            if nombre_busqueda.lower() not in texto:
                 return False
 
-        # Fechas
-        if fecha_min and c["fecha_inicio"] < fecha_min.isoformat():
-            return False
+        # Fecha inicio mínima
+        if fecha_min and c.get("fecha_inicio"):
+            try:
+                if c["fecha_inicio"] < fecha_min.isoformat():
+                    return False
+            except Exception:
+                pass
 
-        if fecha_max and c["fecha_fin"] > fecha_max.isoformat():
-            return False
+        # Fecha fin máxima
+        if fecha_max and c.get("fecha_fin"):
+            try:
+                if c["fecha_fin"] > fecha_max.isoformat():
+                    return False
+            except Exception:
+                pass
 
         return True
 
     campanias = [c for c in campanias if aplicar_filtros(c)]
 
     if not campanias:
-        st.info("📭 No hay campañas que coincidan con los filtros.")
+        st.info("📭 No hay campañas que coincidan con los filtros seleccionados.")
         return
 
     # ======================================================
-    # BADGES
+    # 🔔 PANEL GLOBAL DE RIESGO
+    # ======================================================
+    alertas_global = {"criticas": 0, "altas": 0, "medias": 0}
+
+    for c in campanias:
+        fecha_fin = c.get("fecha_fin")
+        if not fecha_fin:
+            continue
+        try:
+            dias = (date.fromisoformat(fecha_fin) - date.today()).days
+        except:
+            continue
+
+        if dias < 0:
+            alertas_global["criticas"] += 1
+        elif dias <= 2:
+            alertas_global["altas"] += 1
+        elif dias <= 5:
+            alertas_global["medias"] += 1
+
+    if any(alertas_global.values()):
+        st.subheader("🔔 Alertas importantes")
+
+        if alertas_global["criticas"]:
+            st.error(f"⚠️ {alertas_global['criticas']} campaña(s) en situación crítica.")
+        if alertas_global["altas"]:
+            st.warning(f"⚠️ {alertas_global['altas']} campaña(s) en riesgo alto.")
+        if alertas_global["medias"]:
+            st.info(f"ℹ️ {alertas_global['medias']} campaña(s) en riesgo medio.")
+
+        st.divider()
+
+    # ======================================================
+    # ESTADOS
     # ======================================================
     BADGE = {
         "borrador": "🟡 Borrador",
@@ -116,145 +180,126 @@ def render(supabase):
     st.write("")
 
     # ======================================================
-    # 🧱 RENDER DEL LISTADO
+    # 🧱 TARJETAS DE CAMPAÑAS (ERP profesional)
     # ======================================================
     for camp in campanias:
 
+        camp_id = camp["campaniaid"]
+
+        # --------------------------------------------------
+        # Cargar actuaciones asociadas
+        # --------------------------------------------------
+        try:
+            rel = (
+                supa.table("campania_actuacion")
+                .select("actuacionid")
+                .eq("campaniaid", camp_id)
+                .execute()
+            ).data or []
+
+            act_ids = [r["actuacionid"] for r in rel]
+
+            if act_ids:
+                acc = (
+                    supa.table("crm_actuacion")
+                    .select("estado")
+                    .in_("crm_actuacionid", act_ids)
+                    .execute()
+                ).data or []
+            else:
+                acc = []
+        except:
+            acc = []
+
+        total = len(acc)
+        comp = sum(1 for a in acc if a["estado"] == "Completada")
+        pend = sum(1 for a in acc if a["estado"] == "Pendiente")
+        canc = sum(1 for a in acc if a["estado"] == "Cancelada")
+        avance = int((comp / total) * 100) if total else 0
+
+        # --------------------------------------------------
+        # Tarjeta visual
+        # --------------------------------------------------
         with st.container(border=True):
 
             col1, col2, col3, col4 = st.columns([4, 2, 2, 2])
 
-            # --------------------------------------------------
-            # 📝 Columna 1 — Datos generales
-            # --------------------------------------------------
+            # --------------------------------------
+            # INFO PRINCIPAL
+            # --------------------------------------
             with col1:
                 st.markdown(f"### {camp['nombre']}")
                 st.write(camp.get("descripcion") or "—")
+                st.write(f"📅 {camp.get('fecha_inicio')} → {camp.get('fecha_fin')}")
+                st.write(f"🏷️ Tipo: **{camp.get('tipo_accion','—')}**")
 
-                st.write(f"📅 *{camp['fecha_inicio']} → {camp['fecha_fin']}*")
-                st.write(f"🏷️ Tipo: **{camp['tipo_accion']}**")
-
-            # --------------------------------------------------
-            # 🔖 Columna 2 — Estado + Acciones administrativas
-            # --------------------------------------------------
+            # --------------------------------------
+            # ESTADO
+            # --------------------------------------
             with col2:
+                estado = camp.get("estado", "borrador")
                 st.write("### Estado")
-                estado = camp["estado"]
                 st.markdown(f"**{BADGE.get(estado, estado)}**")
 
-                # 🎛 Acciones de estado
+                # Acciones de estado
                 if estado in ["borrador", "activa", "pausada"]:
-                    if st.button("🔵 Finalizar", key=f"fin_{camp['campaniaid']}"):
-                        supabase.table("campania").update({"estado": "finalizada"}) \
-                            .eq("campaniaid", camp["campaniaid"]).execute()
+                    if st.button("🔵 Finalizar", key=f"fin_{camp_id}"):
+                        supa.table("campania").update({"estado": "finalizada"}).eq("campaniaid", camp_id).execute()
                         st.rerun()
 
-                    if st.button("🔴 Cancelar", key=f"can_{camp['campaniaid']}"):
-                        supabase.table("campania").update({"estado": "cancelada"}) \
-                            .eq("campaniaid", camp["campaniaid"]).execute()
+                    if st.button("🔴 Cancelar", key=f"can_{camp_id}"):
+                        supa.table("campania").update({"estado": "cancelada"}).eq("campaniaid", camp_id).execute()
                         st.rerun()
 
-                # Reabrir si está cerrada
                 if estado in ["cancelada", "finalizada"]:
-                    if st.button("♻️ Reabrir", key=f"open_{camp['campaniaid']}"):
-                        nuevo_estado = "activa" if estado == "finalizada" else "pausada"
-                        supabase.table("campania").update({"estado": nuevo_estado}) \
-                            .eq("campaniaid", camp["campaniaid"]).execute()
+                    if st.button("♻️ Reabrir", key=f"open_{camp_id}"):
+                        supa.table("campania").update({"estado": "activa"}).eq("campaniaid", camp_id).execute()
                         st.rerun()
 
-            # --------------------------------------------------
-            # 📊 Columna 3 — Progreso CRM real
-            # --------------------------------------------------
+                if estado in ["borrador", "cancelada"]:
+                    if st.button("🗑️ Eliminar", key=f"del_{camp_id}"):
+                        supa.table("campania").delete().eq("campaniaid", camp_id).execute()
+                        supa.table("campania_cliente").delete().eq("campaniaid", camp_id).execute()
+                        supa.table("campania_actuacion").delete().eq("campaniaid", camp_id).execute()
+                        st.rerun()
+
+            # --------------------------------------
+            # PROGRESO
+            # --------------------------------------
             with col3:
-                try:
-                    rel = (
-                        supabase.table("campania_actuacion")
-                        .select("actuacionid")
-                        .eq("campaniaid", camp["campaniaid"])
-                        .execute()
-                    ).data or []
-
-                    act_ids = [r["actuacionid"] for r in rel]
-
-                    if act_ids:
-                        acc = (
-                            supabase.table("crm_actuacion")
-                            .select("estado")
-                            .in_("crm_actuacionid", act_ids)
-                            .execute()
-                        ).data or []
-                    else:
-                        acc = []
-
-                except:
-                    acc = []
-
-                total = len(acc)
-                completadas = sum(1 for a in acc if a["estado"] == "Completada")
-                pct = int((completadas / total) * 100) if total else 0
-
                 st.write("### 📊 Progreso")
                 st.write(f"Total: **{total}**")
-                st.write(f"Completadas: **{completadas}**")
-                st.progress(pct / 100 if total else 0)
-                st.caption(f"{pct}% completado")
+                st.write(f"Completadas: **{comp}**")
+                st.write(f"Pendientes: **{pend}**")
+                st.write(f"Canceladas: **{canc}**")
+                st.progress(avance / 100 if total else 0)
+                st.caption(f"{avance}% completado")
 
-            # --------------------------------------------------
-            # ⚙️ Columna 4 — Acciones de navegación
-            # --------------------------------------------------
+            # --------------------------------------
+            # ACCIONES RÁPIDAS
+            # --------------------------------------
             with col4:
                 st.write("### Opciones")
 
-                if st.button("📄 Detalle", key=f"detalle_{camp['campaniaid']}"):
-                    st.session_state["campaniaid"] = camp["campaniaid"]
+                if st.button("🔎 Detalle", key=f"d_{camp_id}"):
+                    st.session_state["campaniaid"] = camp_id
                     st.session_state["campania_view"] = "detalle"
                     st.rerun()
 
-                if st.button("✏️ Editar", key=f"edit_{camp['campaniaid']}"):
-                    st.session_state["campaniaid"] = camp["campaniaid"]
+                if st.button("✏️ Editar", key=f"e_{camp_id}"):
+                    st.session_state["campaniaid"] = camp_id
                     st.session_state["campania_step"] = 1
                     st.session_state["campania_view"] = "form"
                     st.rerun()
 
-                if st.button("📈 Progreso", key=f"prog_{camp['campaniaid']}"):
-                    st.session_state["campaniaid"] = camp["campaniaid"]
+                if st.button("📈 Progreso", key=f"p_{camp_id}"):
+                    st.session_state["campaniaid"] = camp_id
                     st.session_state["campania_view"] = "progreso"
                     st.rerun()
 
-                if st.button("📊 Informes", key=f"inf_{camp['campaniaid']}"):
-                    st.session_state["campaniaid"] = camp["campaniaid"]
+                if st.button("📊 Informes", key=f"i_{camp_id}"):
+                    st.session_state["campaniaid"] = camp_id
                     st.session_state["campania_view"] = "informes"
                     st.rerun()
 
-                # 📑 Clonar campaña
-                if st.button("📑 Clonar", key=f"clone_{camp['campaniaid']}"):
-
-                    clone = {
-                        "nombre": camp["nombre"] + " (copia)",
-                        "descripcion": camp["descripcion"],
-                        "tipo_accion": camp["tipo_accion"],
-                        "fecha_inicio": camp["fecha_inicio"],
-                        "fecha_fin": camp["fecha_fin"],
-                        "estado": "borrador",
-                    }
-
-                    try:
-                        new = supabase.table("campania").insert(clone).execute()
-
-                        if new.data:
-                            new_id = new.data[0]["campaniaid"]
-
-                            supabase.rpc(
-                                "clonar_campania_segmentacion",
-                                {"old_id": camp["campaniaid"], "new_id": new_id}
-                            ).execute()
-
-                            st.success("Campaña clonada correctamente.")
-                            st.session_state["campaniaid"] = new_id
-                            st.session_state["campania_view"] = "form"
-                            st.rerun()
-
-                    except Exception as e:
-                        st.error(f"❌ Error al clonar: {e}")
-
-        st.write("")  # separación visual
+        st.write("")  # Separación visual

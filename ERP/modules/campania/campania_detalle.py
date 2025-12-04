@@ -1,24 +1,37 @@
 import streamlit as st
 import pandas as pd
+from datetime import datetime
+
+from modules.crm.actuacion_workflow import render_llamada_workflow
+from modules.campania.campania_nav import render_campania_nav
 
 
 # ======================================================
-# 🔎 DETALLE DE CAMPAÑA
+# 🔎 DETALLE DE CAMPAÑA — Versión PRO
 # ======================================================
-
 def render(campaniaid: int):
-    st.title("🔎 Detalle de la Campaña")
-
-    if st.button("⬅️ Cancelar y volver"):
-        st.session_state["campania_view"] = "lista"
-        st.rerun()
-
-
     supa = st.session_state["supa"]
 
-    # --------------------------------------------------
-    # Cargar campaña
-    # --------------------------------------------------
+    # =============================================
+    # ¿Hay una llamada abierta?
+    # =============================================
+    llamada_id = st.session_state.get("campania_llamada_abierta")
+
+    render_campania_nav(active_view="detalle", campaniaid=campaniaid)
+
+    if llamada_id:
+        st.title("📞 Llamada CRM")
+
+        if st.button("⬅️ Volver a la campaña", use_container_width=True):
+            st.session_state["campania_llamada_abierta"] = None
+            st.rerun()
+
+        render_llamada_workflow(supa, llamada_id)
+        return
+
+    # =============================================
+    # Datos de campaña
+    # =============================================
     campania = (
         supa.table("campania")
         .select("*")
@@ -32,33 +45,87 @@ def render(campaniaid: int):
         st.error("No se encontró la campaña.")
         return
 
-    # Cabecera limpia + estado
-    col1, col2 = st.columns([4, 1])
+    # ---------------------------------------------
+    # CABECERA
+    # ---------------------------------------------
+    col_left, col_right = st.columns([3, 1])
+    with col_left:
+        st.title(f"📣 {campania['nombre']}")
+        if campania.get("descripcion"):
+            st.caption(campania["descripcion"])
 
-    with col1:
-        st.header(f"📣 {campania['nombre']}")
-
-    with col2:
+    with col_right:
         st.markdown(_badge_estado(campania["estado"]), unsafe_allow_html=True)
-
-    # Resumen general rápido
-    st.markdown("### 🧾 Resumen")
-    colA, colB, colC = st.columns(3)
-
-    with colA:
-        st.markdown(f"**Inicio:** {campania['fecha_inicio']}")
-        st.markdown(f"**Fin:** {campania['fecha_fin']}")
-
-    with colB:
-        st.markdown(f"**Acción:** {campania['tipo_accion']}")
-        st.markdown(f"**Objetivo:** {campania.get('objetivo_total') or '—'}")
-
-    with colC:
-        st.markdown(f"**Estado:** `{campania['estado']}`")
 
     st.divider()
 
+    # =============================================
+    # ACCIONES RÁPIDAS
+    # =============================================
+    st.subheader("⚙️ Acciones rápidas")
 
+    cA, cB, cC, cD, cE = st.columns(5)
+
+    # EDITAR
+    with cA:
+        if st.button("✏️ Editar"):
+            st.session_state["campaniaid"] = campaniaid
+            st.session_state["campania_step"] = 1
+            st.session_state["campania_view"] = "form"
+            st.rerun()
+
+    # CANCELAR
+    with cB:
+        if campania["estado"] == "activa":
+            if st.button("🚫 Cancelar"):
+                supa.table("campania").update({"estado": "cancelada"}).eq("campaniaid", campaniaid).execute()
+                st.rerun()
+
+    # REABRIR
+    with cC:
+        if campania["estado"] == "cancelada":
+            if st.button("🔁 Reabrir"):
+                supa.table("campania").update({"estado": "activa"}).eq("campaniaid", campaniaid).execute()
+                st.rerun()
+
+    # FINALIZAR
+    with cD:
+        if campania["estado"] == "activa":
+            if st.button("✔ Finalizar"):
+                supa.table("campania").update({"estado": "finalizada"}).eq("campaniaid", campaniaid).execute()
+                st.rerun()
+
+    # ELIMINAR (modal seguro)
+    with cE:
+        if campania["estado"] in ["borrador", "cancelada"]:
+            if st.button("🗑 Eliminar"):
+                st.session_state["confirmar_delete_campania"] = campaniaid
+
+    # Modal de confirmación
+    if st.session_state.get("confirmar_delete_campania") == campaniaid:
+        st.error("⚠ ¿Seguro que quieres eliminar esta campaña? Esta acción es irreversible.")
+        colX, colY = st.columns(2)
+
+        with colX:
+            if st.button("❗ Confirmar eliminación definitiva"):
+                supa.table("campania").delete().eq("campaniaid", campaniaid).execute()
+                supa.table("campania_cliente").delete().eq("campaniaid", campaniaid).execute()
+                supa.table("campania_actuacion").delete().eq("campaniaid", campaniaid).execute()
+                st.session_state["campania_view"] = "lista"
+                st.session_state["campaniaid"] = None
+                st.session_state["confirmar_delete_campania"] = None
+                st.rerun()
+
+        with colY:
+            if st.button("Cancelar"):
+                st.session_state["confirmar_delete_campania"] = None
+                st.rerun()
+
+    st.divider()
+
+    # =============================================
+    # OBTENER ACTUACIONES
+    # =============================================
     acciones = _fetch_actuaciones_campania(supa, campaniaid)
     df = pd.DataFrame(acciones)
 
@@ -66,144 +133,132 @@ def render(campaniaid: int):
         st.warning("Esta campaña aún no tiene actuaciones generadas.")
         return
 
-    # Normalizar fechas
     df["fecha_accion"] = pd.to_datetime(df["fecha_accion"])
 
-    # KPIs rápidos
+    # =============================================
+    # KPIs
+    # =============================================
+    st.subheader("📊 KPIs generales")
+
     total = len(df)
-    comp = (df["estado"] == "Completada").sum()
-    pend = (df["estado"] == "Pendiente").sum()
-    canc = (df["estado"] == "Cancelada").sum()
+    completas = (df["estado"] == "Completada").sum()
+    pendientes = (df["estado"] == "Pendiente").sum()
+    canceladas = (df["estado"] == "Cancelada").sum()
+    progreso = completas / total if total else 0
 
-    st.markdown("### 📊 KPIs generales")
+    dur_media = (
+        round(df["duracion_segundos"].dropna().mean() / 60, 1)
+        if df["duracion_segundos"].notna().any()
+        else None
+    )
 
-    k1, k2, k3, k4 = st.columns(4)
+    k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Total", total)
-    k2.metric("Completadas", comp)
-    k3.metric("Pendientes", pend)
-    k4.metric("Canceladas", canc)
+    k2.metric("Completadas", completas)
+    k3.metric("Pendientes", pendientes)
+    k4.metric("Canceladas", canceladas)
+    k5.metric("Duración media (min)", dur_media or "—")
 
-    st.progress(comp / total if total else 0)
+    st.progress(progreso)
     st.divider()
 
-
-    # ======================================================
+    # =============================================
     # TABS
-    # ======================================================
-    tab1, tab2, tab3 = st.tabs([
-        "👤 Por Comercial",
-        "🏢 Por Cliente",
-        "🕒 Timeline"
-    ])
+    # =============================================
+    t1, t2, t3 = st.tabs(["👤 Por comercial", "🏢 Por cliente", "🕒 Timeline"])
 
-    # ======================================================
-    # TAB 1 - POR COMERCIAL
-    # ======================================================
-    with tab1:
+    # -----------------------------------------------------
+    # TAB 1 — POR COMERCIAL
+    # -----------------------------------------------------
+    with t1:
         st.subheader("👤 Actividad por comercial")
 
-        df_trab = df.groupby("trabajadorid").agg(
-            nombre=("trabajador_nombre", "first"),
-            apellidos=("trabajador_apellidos", "first"),
-            total=("crm_actuacionid", "count"),
-            completadas=("estado", lambda x: (x == "Completada").sum()),
-            pendientes=("estado", lambda x: (x == "Pendiente").sum()),
-            canceladas=("estado", lambda x: (x == "Cancelada").sum()),
-        ).reset_index()
+        df_trab = (
+            df.groupby("trabajadorid")
+            .agg(
+                nombre=("trabajador_nombre", "first"),
+                total=("crm_actuacionid", "count"),
+                completadas=("estado", lambda x: (x == "Completada").sum()),
+                pendientes=("estado", lambda x: (x == "Pendiente").sum()),
+                canceladas=("estado", lambda x: (x == "Cancelada").sum()),
+            )
+            .reset_index()
+        )
+
+        st.dataframe(df_trab, hide_index=True, use_container_width=True)
 
         df_trab["avance"] = (df_trab["completadas"] / df_trab["total"] * 100).round(1)
 
-        st.dataframe(
-            df_trab[["nombre", "apellidos", "total", "completadas", "pendientes", "avance"]],
-            hide_index=True,
-            use_container_width=True
-        )
-
-        st.markdown("#### % Avance por comercial")
         st.bar_chart(df_trab.set_index("nombre")["avance"])
 
-
-    # ======================================================
-    # TAB 2 - POR CLIENTE
-    # ======================================================
-    with tab2:
+    # -----------------------------------------------------
+    # TAB 2 — POR CLIENTE
+    # -----------------------------------------------------
+    with t2:
         st.subheader("🏢 Actividad por cliente")
 
-        df_cli = df.groupby("clienteid").agg(
-            cliente=("cliente_razon_social", "first"),
-            total=("crm_actuacionid", "count"),
-            completadas=("estado", lambda x: (x == "Completada").sum()),
-            pendientes=("estado", lambda x: (x == "Pendiente").sum()),
-            canceladas=("estado", lambda x: (x == "Cancelada").sum()),
-        ).reset_index()
-
-        df_cli["% avance"] = (
-            df_cli["completadas"] / df_cli["total"] * 100
-        ).round(2)
-
-        st.dataframe(df_cli)
-
-        st.markdown("### Detalle por cliente")
-        cliente_sel = st.selectbox("Selecciona cliente:", df_cli["cliente"].tolist())
-
-        df_det = df[df["cliente_razon_social"] == cliente_sel].sort_values("fecha_accion")
-
-        st.dataframe(
-            df_det[[
-                "fecha_accion", "estado", "prioridad",
-                "trabajador_nombre", "trabajador_apellidos", "resultado"
-            ]],
-            hide_index=True,
-            use_container_width=True
+        df_cli = (
+            df.groupby("clienteid")
+            .agg(
+                cliente=("cliente_razon_social", "first"),
+                total=("crm_actuacionid", "count"),
+                completadas=("estado", lambda x: (x == "Completada").sum()),
+                pendientes=("estado", lambda x: (x == "Pendiente").sum()),
+                canceladas=("estado", lambda x: (x == "Cancelada").sum()),
+            )
+            .reset_index()
         )
 
-    # ======================================================
-    # TAB 3 - TIMELINE
-    # ======================================================
-    with tab3:
-        st.subheader("🕒 Timeline de la campaña")
+        st.dataframe(df_cli, hide_index=True, use_container_width=True)
 
-        df_sorted = df.sort_values("fecha_accion")
+        # Abrir llamada
+        st.markdown("### 📞 Abrir llamada")
+        act_sel = st.selectbox("Selecciona actuación:", df["crm_actuacionid"])
 
-        st.markdown("### 🕒 Timeline ordenado")
+        if st.button("📞 Abrir llamada seleccionada"):
+            st.session_state["campania_llamada_abierta"] = act_sel
+            st.rerun()
 
-        for _, row in df_sorted.iterrows():
-            st.markdown(f"""
-            <div style="padding:10px; border-left:4px solid #4a90e2; margin-bottom:10px; background:#fafafa;">
-                <b>{row['fecha_accion'].strftime('%d/%m/%Y %H:%M')}</b> — {row['cliente_razon_social']}<br>
-                <span style="color:gray">Comercial:</span> {row['trabajador_nombre']} {row['trabajador_apellidos']}<br>
-                <span style="color:gray">Estado:</span> <b>{row['estado']}</b> ·
-                <span style="color:gray">Prioridad:</span> <b>{row['prioridad']}</b><br>
-                <span style="color:gray">Resultado:</span> {row['resultado'] or '—'}
-            </div>
-            """, unsafe_allow_html=True)
+    # -----------------------------------------------------
+    # TAB 3 — TIMELINE
+    # -----------------------------------------------------
+    with t3:
+        st.subheader("🕒 Timeline de actuaciones")
+
+        df_ordenado = df.sort_values("fecha_accion")
+
+        for _, a in df_ordenado.iterrows():
+            st.markdown(
+                f"""
+                **{a['fecha_accion'].strftime('%d/%m/%Y %H:%M')}** — {a['cliente_razon_social']}  
+                Estado: **{a['estado']}**  
+                Resultado: {a['resultado'] or '—'}  
+                """
+            )
+
+            if st.button(f"📞 Abrir llamada #{a['crm_actuacionid']}", key=f"tl_{a['crm_actuacionid']}"):
+                st.session_state["campania_llamada_abierta"] = a["crm_actuacionid"]
+                st.rerun()
 
 
 # ======================================================
-# 🔧 HELPERS INTERNOS CORRECTOS
+# HELPERS
 # ======================================================
-
-def _fetch_actuaciones_campania(supa, campaniaid: int):
-    """
-    Obtiene TODAS las actuaciones de la campaña usando campania_actuacion
-    (NO existe columna campaniaid en crm_actuacion).
-    """
-
-    # 1. Obtener IDs de actuaciones vinculadas
+def _fetch_actuaciones_campania(supa, campaniaid):
     rel = (
         supa.table("campania_actuacion")
         .select("actuacionid, clienteid")
         .eq("campaniaid", campaniaid)
         .execute()
-    ).data or []
+        .data or []
+    )
 
     if not rel:
         return []
 
     act_ids = [r["actuacionid"] for r in rel]
 
-    # 2. Cargar actuaciones reales
-    res = (
+    data = (
         supa.table("crm_actuacion")
         .select(
             """
@@ -214,54 +269,54 @@ def _fetch_actuaciones_campania(supa, campaniaid: int):
             prioridad,
             fecha_accion,
             resultado,
+            duracion_segundos,
             cliente (clienteid, razon_social),
             trabajador!crm_actuacion_trabajadorid_fkey (trabajadorid, nombre, apellidos)
-
             """
         )
         .in_("crm_actuacionid", act_ids)
-        .order("fecha_accion")
         .execute()
+        .data or []
     )
-    data = res.data or []
 
-    # Aplanar
     rows = []
     for a in data:
-        rows.append({
-            "crm_actuacionid": a["crm_actuacionid"],
-            "clienteid": a["clienteid"],
-            "cliente_razon_social": a["cliente"]["razon_social"] if a["cliente"] else "",
-            "trabajadorid": a["trabajadorid"],
-            "trabajador_nombre": a["trabajador"]["nombre"] if a["trabajador"] else "",
-            "trabajador_apellidos": a["trabajador"]["apellidos"] if a["trabajador"] else "",
-            "estado": a["estado"],
-            "prioridad": a["prioridad"],
-            "fecha_accion": a["fecha_accion"],  # será convertido a datetime arriba
-            "resultado": a.get("resultado"),
-        })
+        rows.append(
+            {
+                "crm_actuacionid": a["crm_actuacionid"],
+                "clienteid": a["clienteid"],
+                "cliente_razon_social": (a.get("cliente") or {}).get("razon_social", ""),
+                "trabajadorid": a["trabajadorid"],
+                "trabajador_nombre": (a.get("trabajador") or {}).get("nombre", ""),
+                "trabajador_apellidos": (a.get("trabajador") or {}).get("apellidos", ""),
+                "estado": a["estado"],
+                "prioridad": a["prioridad"],
+                "fecha_accion": a["fecha_accion"],
+                "resultado": a.get("resultado"),
+                "duracion_segundos": a.get("duracion_segundos"),
+            }
+        )
 
-    # Ordenamos por fecha antes de devolver
-    rows = sorted(rows, key=lambda r: r["fecha_accion"])
     return rows
 
 
 def _badge_estado(estado: str):
     colores = {
-        "borrador": "🟡 Borrador",
-        "activa": "🟢 Activa",
-        "finalizada": "🔵 Finalizada",
-        "cancelada": "🔴 Cancelada",
+        "borrador": ("🟡", "#facc15"),
+        "activa": ("🟢", "#22c55e"),
+        "finalizada": ("🔵", "#3b82f6"),
+        "cancelada": ("🔴", "#ef4444"),
     }
-    txt = colores.get(estado, estado)
+    icon, color = colores.get(estado, ("⚪", "#999999"))
+
     return f"""
     <div style="
-        padding:6px 10px;
-        background:#f2f2f2;
+        padding:6px 12px;
+        background:{color}15;
+        border:1px solid {color};
         border-radius:8px;
         display:inline-block;
-        font-weight:600;
-    ">
-        {txt}
+        font-weight:600;">
+        {icon} {estado.capitalize()}
     </div>
     """

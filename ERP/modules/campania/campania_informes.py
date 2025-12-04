@@ -3,10 +3,14 @@ import pandas as pd
 
 
 # ======================================================
-# 📊 INFORMES DE CAMPAÑA
+# 📊 INFORMES DE CAMPAÑA (VERSIÓN PRO)
 # ======================================================
-
 def render(supa, campaniaid):
+    from modules.campania.campania_nav import render_campania_nav
+
+    # Navegación superior
+    render_campania_nav(active_view="informes", campaniaid=campaniaid)
+
     st.title("📊 Informes de campaña")
 
     # Botón volver
@@ -15,7 +19,7 @@ def render(supa, campaniaid):
         st.rerun()
 
     # --------------------------------------------------
-    # Cargar información básica de campaña
+    # Información básica de la campaña
     # --------------------------------------------------
     campania = (
         supa.table("campania")
@@ -26,14 +30,14 @@ def render(supa, campaniaid):
         .data
     )
 
-    if campania:
-        st.markdown(f"### 📣 {campania['nombre']}")
-        st.markdown(
-            f"🗓️ **{campania['fecha_inicio']} → {campania['fecha_fin']}** · `{campania['estado']}`"
-        )
-    else:
-        st.warning("No se pudo cargar información de la campaña.")
+    if not campania:
+        st.error("❌ No se pudo cargar información de la campaña.")
+        return
 
+    st.markdown(f"### 📣 {campania['nombre']}")
+    st.caption(
+        f"🗓️ {campania['fecha_inicio']} → {campania['fecha_fin']} · Estado: `{campania['estado']}`"
+    )
     st.divider()
 
     # --------------------------------------------------
@@ -42,13 +46,13 @@ def render(supa, campaniaid):
     acciones = _fetch_actuaciones_campania(supa, campaniaid)
 
     if not acciones:
-        st.warning("Esta campaña aún no tiene actuaciones generadas.")
+        st.warning("La campaña aún no tiene actuaciones generadas.")
         return
 
     df = pd.DataFrame(acciones)
 
     # ======================================================
-    # KPIs GENERALES
+    # 📌 RESUMEN GENERAL (KPIs)
     # ======================================================
     st.header("📌 Resumen general")
 
@@ -57,35 +61,36 @@ def render(supa, campaniaid):
     pendientes = (df["estado"] == "Pendiente").sum()
     canceladas = (df["estado"] == "Cancelada").sum()
 
-    avance_pct = round((completadas / total) * 100, 1) if total else 0
+    avance_pct = round(completadas / total * 100, 1) if total else 0
 
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Total", total)
     k2.metric("Completadas", completadas)
     k3.metric("Pendientes", pendientes)
     k4.metric("Canceladas", canceladas)
-    k5.metric("% Avance", f"{avance_pct}%")
+    k5.metric("Avance", f"{avance_pct}%")
 
     st.progress(avance_pct / 100 if total else 0)
-
     st.divider()
 
     # ======================================================
-    # RENDIMIENTO POR COMERCIAL
+    # 👤 RENDIMIENTO POR COMERCIAL
     # ======================================================
     st.subheader("👤 Rendimiento por comercial")
 
-    df_trab = df.groupby("trabajadorid").agg(
-        nombre=("trabajador_nombre", "first"),
-        apellidos=("trabajador_apellidos", "first"),
-        total=("crm_actuacionid", "count"),
-        completadas=("estado", lambda x: (x == "Completada").sum()),
-        pendientes=("estado", lambda x: (x == "Pendiente").sum()),
-    ).reset_index()
+    df_trab = (
+        df.groupby("trabajadorid")
+        .agg(
+            nombre=("trabajador_nombre", "first"),
+            apellidos=("trabajador_apellidos", "first"),
+            total=("crm_actuacionid", "count"),
+            completadas=("estado", lambda x: (x == "Completada").sum()),
+            pendientes=("estado", lambda x: (x == "Pendiente").sum()),
+        )
+        .reset_index()
+    )
 
-    df_trab["avance"] = (
-        df_trab["completadas"] / df_trab["total"] * 100
-    ).round(1)
+    df_trab["avance"] = (df_trab["completadas"] / df_trab["total"] * 100).round(1)
 
     st.dataframe(
         df_trab[["nombre", "apellidos", "total", "completadas", "pendientes", "avance"]],
@@ -95,7 +100,7 @@ def render(supa, campaniaid):
 
     st.download_button(
         "📥 Exportar CSV (Comerciales)",
-        df_trab.to_csv(index=False).encode("utf-8"),
+        df_trab.to_csv(index=False).encode(),
         "campania_por_comercial.csv",
         "text/csv",
     )
@@ -104,20 +109,22 @@ def render(supa, campaniaid):
     st.divider()
 
     # ======================================================
-    # RENDIMIENTO POR CLIENTE
+    # 🏢 RENDIMIENTO POR CLIENTE
     # ======================================================
     st.subheader("🏢 Rendimiento por cliente")
 
-    df_cli = df.groupby("clienteid").agg(
-        cliente=("cliente_razon_social", "first"),
-        total=("crm_actuacionid", "count"),
-        completadas=("estado", lambda x: (x == "Completada").sum()),
-        pendientes=("estado", lambda x: (x == "Pendiente").sum()),
-    ).reset_index()
+    df_cli = (
+        df.groupby("clienteid")
+        .agg(
+            cliente=("cliente_razon_social", "first"),
+            total=("crm_actuacionid", "count"),
+            completadas=("estado", lambda x: (x == "Completada").sum()),
+            pendientes=("estado", lambda x: (x == "Pendiente").sum()),
+        )
+        .reset_index()
+    )
 
-    df_cli["avance"] = (
-        df_cli["completadas"] / df_cli["total"] * 100
-    ).round(1)
+    df_cli["avance"] = (df_cli["completadas"] / df_cli["total"] * 100).round(1)
 
     st.dataframe(
         df_cli[["cliente", "total", "completadas", "pendientes", "avance"]],
@@ -127,7 +134,7 @@ def render(supa, campaniaid):
 
     st.download_button(
         "📥 Exportar CSV (Clientes)",
-        df_cli.to_csv(index=False).encode("utf-8"),
+        df_cli.to_csv(index=False).encode(),
         "campania_por_cliente.csv",
         "text/csv",
     )
@@ -135,22 +142,26 @@ def render(supa, campaniaid):
     st.divider()
 
     # ======================================================
-    # EVOLUCIÓN TEMPORAL
+    # 📅 EVOLUCIÓN TEMPORAL
     # ======================================================
-    st.subheader("🗓️ Evolución temporal de actuaciones")
+    st.subheader("📅 Evolución temporal")
 
     df["fecha_accion"] = pd.to_datetime(df["fecha_accion"]).dt.date
 
-    df_fecha = df.groupby("fecha_accion").agg(
-        total=("crm_actuacionid", "count"),
-        completadas=("estado", lambda x: (x == "Completada").sum()),
-    ).reset_index()
+    df_fecha = (
+        df.groupby("fecha_accion")
+        .agg(
+            total=("crm_actuacionid", "count"),
+            completadas=("estado", lambda x: (x == "Completada").sum()),
+        )
+        .reset_index()
+    )
 
     st.line_chart(df_fecha.set_index("fecha_accion")[["total", "completadas"]])
     st.divider()
 
     # ======================================================
-    # EMBUDO
+    # 🧪 EMBUDO (Funnel)
     # ======================================================
     st.subheader("🧪 Embudo de conversión")
 
@@ -161,27 +172,31 @@ def render(supa, campaniaid):
 
     st.bar_chart(funnel)
 
-    st.markdown("""
-    **Interpretación:**
-    - **Generadas** → Tareas creadas por la campaña  
-    - **Pendientes** → Aún no atendidas  
-    - **Completadas** → Ejecutadas  
-    """)
+    st.caption(
+        "Interpretación del embudo:\n"
+        "- **Generadas** → Total de actuaciones creadas\n"
+        "- **Pendientes** → Acciones aún no atendidas\n"
+        "- **Completadas** → Acciones finalizadas correctamente"
+    )
 
     st.divider()
 
     # ======================================================
-    # GRUPOS
+    # 📚 ACTUACIONES POR GRUPO
     # ======================================================
     st.subheader("📚 Actuaciones por grupo de cliente")
 
     df_grupo = _fetch_por_grupo(supa, campaniaid)
 
-    st.dataframe(df_grupo.sort_values("total", ascending=False), hide_index=True)
+    st.dataframe(
+        df_grupo.sort_values("total", ascending=False),
+        hide_index=True,
+        use_container_width=True,
+    )
 
     st.download_button(
         "📥 Exportar CSV (Grupos)",
-        df_grupo.to_csv(index=False).encode("utf-8"),
+        df_grupo.to_csv(index=False).encode(),
         "campania_por_grupo.csv",
         "text/csv",
     )
@@ -189,32 +204,26 @@ def render(supa, campaniaid):
     st.divider()
 
     # ======================================================
-    # EXPORTACIÓN COMPLETA
+    # 📦 EXPORTACIÓN COMPLETA
     # ======================================================
-    st.subheader("📦 Exportación completa del dataset")
+    st.subheader("📦 Exportación completa")
 
     st.download_button(
-        "📥 Exportar todo (CSV)",
-        df.to_csv(index=False).encode("utf-8"),
+        "📥 Exportar dataset completo (CSV)",
+        df.to_csv(index=False).encode(),
         "campania_completa.csv",
         "text/csv",
     )
 
 
-
 # ======================================================
 # 🔧 HELPERS
 # ======================================================
-
 def _fetch_actuaciones_campania(supa, campaniaid: int):
-    """
-    Carga actuaciones haciendo:
-    campania → campania_actuacion → crm_actuacion
-    """
-
+    """Carga actuaciones vinculadas a la campaña."""
     rel = (
         supa.table("campania_actuacion")
-        .select("actuacionid, clienteid")
+        .select("actuacionid")
         .eq("campaniaid", campaniaid)
         .execute()
     ).data or []
@@ -224,10 +233,9 @@ def _fetch_actuaciones_campania(supa, campaniaid: int):
 
     act_ids = [r["actuacionid"] for r in rel]
 
-    res = (
+    raw = (
         supa.table("crm_actuacion")
-        .select(
-            """
+        .select("""
             crm_actuacionid,
             clienteid,
             trabajadorid,
@@ -237,17 +245,13 @@ def _fetch_actuaciones_campania(supa, campaniaid: int):
             resultado,
             cliente (clienteid, razon_social),
             trabajador!crm_actuacion_trabajadorid_fkey (trabajadorid, nombre, apellidos)
-            """
-        )
+        """)
         .in_("crm_actuacionid", act_ids)
-        .order("fecha_accion")
         .execute()
-    )
+    ).data or []
 
-    data = res.data or []
     rows = []
-
-    for a in data:
+    for a in raw:
         rows.append({
             "crm_actuacionid": a["crm_actuacionid"],
             "clienteid": a["clienteid"],
@@ -261,15 +265,11 @@ def _fetch_actuaciones_campania(supa, campaniaid: int):
             "resultado": a.get("resultado"),
         })
 
-    rows = sorted(rows, key=lambda r: r["fecha_accion"])
-    return rows
+    return sorted(rows, key=lambda x: x["fecha_accion"])
 
 
 def _fetch_por_grupo(supa, campaniaid: int):
-    """
-    Obtiene total de actuaciones por GRUPO del cliente.
-    Requiere la función Postgres: execute_sql(query text)
-    """
+    """Totales de actuaciones agrupadas por grupo de cliente (grupoid)."""
 
     sql = f"""
         SELECT 
@@ -288,5 +288,5 @@ def _fetch_por_grupo(supa, campaniaid: int):
         res = supa.rpc("execute_sql", {"query": sql}).execute()
         return pd.DataFrame(res.data or [])
     except Exception as e:
-        st.error(f"Error cargando datos por grupo: {e}")
+        st.error(f"⚠️ Error cargando datos por grupo: {e}")
         return pd.DataFrame([])

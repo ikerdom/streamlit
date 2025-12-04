@@ -1,34 +1,38 @@
 import streamlit as st
 from datetime import date, datetime, timedelta, time
+import pandas as pd
+
+from modules.campania.campania_nav import render_campania_nav
+
 
 # ======================================================
-# 📣 CREAR / EDITAR CAMPAÑA COMERCIAL
+# 📣 CREAR / EDITAR CAMPAÑA COMERCIAL (versión PRO)
 # ======================================================
 
 def render(supabase):
-    # --------------------------------------------------
-    # Contexto / estado base
-    # --------------------------------------------------
-    campaniaid = st.session_state.get("campaniaid")
-    campania = None
 
-    # Breadcrumb para topbar (si lo usas allí)
+    campaniaid = st.session_state.get("campaniaid")
     st.session_state["menu_campanias"] = (
         "Nueva campaña" if campaniaid is None else "Editar campaña"
     )
 
+    render_campania_nav(active_view="form", campaniaid=campaniaid)
+
     st.title("📣 Crear / Editar campaña comercial")
 
-    # Botón global para volver al listado
+    # ======================================================
+    # BOTÓN CANCELAR
+    # ======================================================
     if st.button("⬅️ Cancelar y volver al listado", use_container_width=True):
-        st.session_state["campania_view"] = "lista"
-        st.session_state["campania_step"] = 1
         st.session_state["campaniaid"] = None
+        st.session_state["campania_step"] = 1
+        st.session_state["campania_view"] = "lista"
         st.rerun()
 
-    # ---------------------------
-    # Identificar campaña actual
-    # ---------------------------
+    # ======================================================
+    # CARGAR CAMPAÑA
+    # ======================================================
+    campania = None
     if campaniaid:
         try:
             res = (
@@ -41,28 +45,30 @@ def render(supabase):
             campania = res.data
         except Exception as e:
             st.error(f"Error cargando campaña: {e}")
-            campania = None
-    else:
-        campania = None
 
-    # Si la campaña está cerrada, no se edita aquí
+    # Si está cerrada → bloqueamos edición
     if campania and campania.get("estado") in ["finalizada", "cancelada"]:
         st.info("Esta campaña está cerrada. Solo puedes consultar detalle / informes.")
         return
 
-    # ---------------------------
-    # Control de pasos del wizard
-    # ---------------------------
+    # Paso actual
     step = st.session_state.get("campania_step", 1)
     if step not in (1, 2, 3):
-        step = 1
         st.session_state["campania_step"] = 1
+        step = 1
 
-    st.sidebar.title("Pasos campaña")
-    st.sidebar.write("1️⃣ Datos generales")
-    st.sidebar.write("2️⃣ Segmentación")
-    st.sidebar.write("3️⃣ Confirmación")
+    # ======================================================
+    # SIDEBAR
+    # ======================================================
+    with st.sidebar:
+        st.title("Pasos campaña")
+        st.write("1️⃣ Datos generales")
+        st.write("2️⃣ Segmentación")
+        st.write("3️⃣ Confirmación")
 
+    # ======================================================
+    # ROUTING DE PASOS
+    # ======================================================
     if step == 1:
         step1_datos_generales(supabase, campania, campaniaid)
     elif step == 2:
@@ -71,11 +77,13 @@ def render(supabase):
         step3_confirmacion(supabase, campania, campaniaid)
 
 
+
 # ======================================================
-# 🧩 PASO 1 · DATOS GENERALES
+# PASO 1: DATOS GENERALES
 # ======================================================
 
 def step1_datos_generales(supabase, campania, campaniaid):
+
     st.header("1️⃣ Datos generales de la campaña")
 
     nombre = st.text_input(
@@ -86,45 +94,41 @@ def step1_datos_generales(supabase, campania, campaniaid):
     descripcion = st.text_area(
         "Descripción",
         value=(campania.get("descripcion") if campania else "") or "",
-        placeholder="Ejemplo: Campaña de llamadas a centros de formación…",
+        placeholder="Ejemplo: Llamadas a centros de formación…",
     )
 
     col1, col2 = st.columns(2)
 
+    # Fecha inicio
     with col1:
-        fi_default = date.today()
-        if campania and campania.get("fecha_inicio"):
-            try:
-                fi_default = date.fromisoformat(str(campania["fecha_inicio"]))
-            except Exception:
-                pass
+        fi = campania.get("fecha_inicio") if campania else None
+        try:
+            fi_default = date.fromisoformat(fi) if fi else date.today()
+        except:
+            fi_default = date.today()
 
         fecha_inicio = st.date_input("Fecha inicio", value=fi_default)
 
+    # Fecha fin
     with col2:
-        ff_default = fi_default
-        if campania and campania.get("fecha_fin"):
-            try:
-                ff_default = date.fromisoformat(str(campania["fecha_fin"]))
-            except Exception:
-                pass
+        ff = campania.get("fecha_fin") if campania else None
+        try:
+            ff_default = date.fromisoformat(ff) if ff else fecha_inicio
+        except:
+            ff_default = fecha_inicio
 
         fecha_fin = st.date_input("Fecha fin", value=ff_default)
 
+    # Tipo acción
     tipos = ["llamada", "email", "whatsapp", "visita"]
-    if campania and campania.get("tipo_accion") in tipos:
-        idx = tipos.index(campania["tipo_accion"])
-    else:
-        idx = 0
-
     tipo_accion = st.selectbox(
         "Tipo de acción principal",
         tipos,
-        index=idx,
+        index=tipos.index(campania["tipo_accion"]) if campania and campania["tipo_accion"] in tipos else 0,
     )
 
     objetivo_total = st.number_input(
-        "Número total de acciones objetivo (opcional)",
+        "Objetivo total (opcional)",
         min_value=0,
         value=int(campania.get("objetivo_total") or 0) if campania else 0,
     )
@@ -136,20 +140,23 @@ def step1_datos_generales(supabase, campania, campaniaid):
 
     st.divider()
 
+    # ======================================================
+    # BOTONERA
+    # ======================================================
     colA, colB, colC = st.columns(3)
 
-    # Volver al listado
+    # VOLVER
     with colA:
         if st.button("⬅️ Volver al listado"):
+            st.session_state["campania_view"] = "lista"
             st.session_state["campania_step"] = 1
             st.session_state["campaniaid"] = None
-            st.session_state["campania_view"] = "lista"
-            st.session_state["menu_campanias"] = None
             st.rerun()
 
-    # Guardar y seguir
+    # SIGUIENTE
     with colB:
         if st.button("➡️ Siguiente: segmentación"):
+
             ok, msg = _validar_fechas(fecha_inicio, fecha_fin)
             if not ok:
                 st.error(msg)
@@ -165,24 +172,21 @@ def step1_datos_generales(supabase, campania, campaniaid):
                 "notas": notas.strip() or None,
             }
 
-            # Crear o actualizar
             if campaniaid:
-                supabase.table("campania").update(payload).eq(
-                    "campaniaid", campaniaid
-                ).execute()
+                supabase.table("campania").update(payload).eq("campaniaid", campaniaid).execute()
             else:
-                payload.setdefault("estado", "borrador")
+                payload["estado"] = "borrador"
                 res = supabase.table("campania").insert(payload).execute()
                 if res.data:
-                    campaniaid = res.data[0]["campaniaid"]
-                    st.session_state["campaniaid"] = campaniaid
+                    st.session_state["campaniaid"] = res.data[0]["campaniaid"]
 
             st.session_state["campania_step"] = 2
             st.rerun()
 
-    # Guardar y quedarse
+    # GUARDAR
     with colC:
         if st.button("💾 Guardar borrador"):
+
             ok, msg = _validar_fechas(fecha_inicio, fecha_fin)
             if not ok:
                 st.error(msg)
@@ -194,55 +198,52 @@ def step1_datos_generales(supabase, campania, campaniaid):
                 "fecha_inicio": fecha_inicio.isoformat(),
                 "fecha_fin": fecha_fin.isoformat(),
                 "tipo_accion": tipo_accion,
-                "objetivo_total": objetivo_total or None,
+                "objetivo_total": objetivo_total,
                 "notas": notas.strip() or None,
-                "estado": (campania.get("estado") if campania else "borrador") or "borrador",
+                "estado": (campania.get("estado") if campania else "borrador"),
             }
 
             if campaniaid:
-                supabase.table("campania").update(payload).eq(
-                    "campaniaid", campaniaid
-                ).execute()
-                st.success("Campaña actualizada.")
+                supabase.table("campania").update(payload).eq("campaniaid", campaniaid).execute()
+                st.success("Campaña guardada.")
             else:
                 res = supabase.table("campania").insert(payload).execute()
                 if res.data:
                     st.session_state["campaniaid"] = res.data[0]["campaniaid"]
-                st.success("Campaña creada como borrador.")
+                st.success("Borrador guardado.")
 
             st.rerun()
 
 
+
 # ======================================================
-# 🧩 PASO 2 · SEGMENTACIÓN
+# PASO 2: SEGMENTACIÓN
 # ======================================================
 
 def step2_segmentacion(supabase, campania, campaniaid):
+
     st.header("2️⃣ Segmentación de la campaña")
 
     if not campaniaid:
-        st.error("Primero guarda los datos generales de la campaña (Paso 1).")
+        st.error("Primero completa los datos generales de la campaña.")
         if st.button("⬅️ Ir a datos generales"):
             st.session_state["campania_step"] = 1
             st.rerun()
         return
 
-    st.info(
-        "Añade clientes a la campaña manualmente o por grupo. "
-        "Estos clientes recibirán las acciones comerciales."
-    )
+    st.info("Añade clientes a la campaña manualmente o por grupo.")
 
-    # -------------------------
-    # 1. Clientes actuales
-    # -------------------------
-    st.subheader("Clientes incluidos en la campaña")
+    # ======================================================
+    # CLIENTES ACTUALES
+    # ======================================================
+    clientes = _fetch_campania_clientes(supabase, campaniaid)
 
-    clientes_campania = _fetch_campania_clientes(supabase, campaniaid)
+    st.subheader("Clientes incluidos")
 
-    if not clientes_campania:
+    if not clientes:
         st.info("La campaña aún no tiene clientes.")
     else:
-        for c in clientes_campania:
+        for c in clientes:
             cli = c.get("cliente") or {}
             with st.container(border=True):
                 col1, col2, col3 = st.columns([6, 3, 1])
@@ -262,24 +263,22 @@ def step2_segmentacion(supabase, campania, campaniaid):
 
     st.divider()
 
-    # -------------------------
-    # 2. Buscar y añadir manual
-    # -------------------------
+    # ======================================================
+    # AÑADIR CLIENTE MANUAL
+    # ======================================================
     st.subheader("➕ Añadir cliente manualmente")
 
-    texto = st.text_input("Buscar cliente por razón social o ID", key="busq_cli")
+    texto = st.text_input("Buscar cliente por nombre, ID o referencia")
 
     if texto and len(texto) >= 2:
         try:
-            q = (
+            res = (
                 supabase.table("cliente")
                 .select("clienteid, razon_social, identificador, trabajadorid")
-                .or_(
-                    f"razon_social.ilike.%{texto}%,identificador.ilike.%{texto}%,clienteid.eq.{texto}"
-                )
-                .limit(40)
+                .or_(f"razon_social.ilike.%{texto}%,clienteid.eq.{texto},identificador.ilike.%{texto}%")
+                .limit(50)
+                .execute()
             )
-            res = q.execute()
             candidatos = res.data or []
         except Exception as e:
             st.error(f"Error buscando clientes: {e}")
@@ -290,10 +289,7 @@ def step2_segmentacion(supabase, campania, campaniaid):
                 col1, col2 = st.columns([7, 1])
 
                 with col1:
-                    st.write(
-                        f"**{cli.get('razon_social','(sin nombre)')}** "
-                        f"· ID: {cli.get('clienteid')} · Ref: {cli.get('identificador')}"
-                    )
+                    st.write(f"**{cli['razon_social']}** · ID {cli['clienteid']}")
 
                 with col2:
                     if st.button("Añadir", key=f"add_cli_{cli['clienteid']}"):
@@ -302,35 +298,37 @@ def step2_segmentacion(supabase, campania, campaniaid):
 
     st.divider()
 
-    # -------------------------
-    # 3. Segmentación por grupo
-    # -------------------------
-    st.subheader("🎯 Segmentación por grupo de cliente")
+    # ======================================================
+    # SEGMENTACIÓN POR GRUPO
+    # ======================================================
+    st.subheader("🎯 Segmentar por grupo")
 
     try:
         res_g = supabase.table("grupo").select("grupoid, nombre").order("nombre").execute()
         grupos = res_g.data or []
-    except Exception:
+    except:
         grupos = []
 
     if grupos:
-        nombres_grupos = ["-- Selecciona grupo --"] + [g["nombre"] for g in grupos]
-        grupo_sel = st.selectbox("Filtrar clientes por grupo:", nombres_grupos)
+        sel = st.selectbox(
+            "Selecciona un grupo",
+            ["-- Selecciona --"] + [g["nombre"] for g in grupos]
+        )
 
-        if grupo_sel != "-- Selecciona grupo --":
-            grupo_obj = next(g for g in grupos if g["nombre"] == grupo_sel)
+        if sel != "-- Selecciona --":
+            grupo = next(g for g in grupos if g["nombre"] == sel)
 
             res_cli = (
                 supabase.table("cliente")
-                .select("clienteid, razon_social, identificador")
-                .eq("grupoid", grupo_obj["grupoid"])
+                .select("clienteid, razon_social, trabajadorid")
+                .eq("grupoid", grupo["grupoid"])
                 .execute()
             )
-            clientes_grupo = res_cli.data or []
+            clientes_gr = res_cli.data or []
 
-            st.write(f"Clientes en grupo **{grupo_sel}**: {len(clientes_grupo)}")
+            st.write(f"{len(clientes_gr)} clientes encontrados en {sel}")
 
-            for cli in clientes_grupo:
+            for cli in clientes_gr:
                 with st.container(border=True):
                     col1, col2 = st.columns([7, 1])
 
@@ -338,16 +336,17 @@ def step2_segmentacion(supabase, campania, campaniaid):
                         st.write(f"{cli['razon_social']} · ID {cli['clienteid']}")
 
                     with col2:
-                        if st.button("Añadir", key=f"add_grp_{cli['clienteid']}"):
+                        if st.button("Añadir", key=f"add_g_{cli['clienteid']}"):
                             _add_cliente_to_campania(supabase, campaniaid, cli["clienteid"])
                             st.rerun()
 
     st.divider()
 
-    # -------------------------
-    # 4. Navegación
-    # -------------------------
+    # ======================================================
+    # BOTONERA
+    # ======================================================
     colA, colB = st.columns(2)
+
     with colA:
         if st.button("⬅️ Volver a datos generales"):
             st.session_state["campania_step"] = 1
@@ -359,21 +358,23 @@ def step2_segmentacion(supabase, campania, campaniaid):
             st.rerun()
 
 
+
 # ======================================================
-# 🧩 PASO 3 · CONFIRMACIÓN Y GENERACIÓN
+# PASO 3: CONFIRMACIÓN Y ACTIVACIÓN
 # ======================================================
 
 def step3_confirmacion(supabase, campania, campaniaid):
-    st.header("3️⃣ Confirmación de la campaña")
+
+    st.header("3️⃣ Confirmación")
 
     if not campaniaid:
         st.error("No hay campaña seleccionada.")
-        if st.button("⬅️ Volver a datos generales"):
+        if st.button("⬅️ Volver"):
             st.session_state["campania_step"] = 1
             st.rerun()
         return
 
-    # Recargar campaña
+    # Recargar campaña actualizada
     try:
         res = (
             supabase.table("campania")
@@ -383,68 +384,57 @@ def step3_confirmacion(supabase, campania, campaniaid):
             .execute()
         )
         campania = res.data
-        if not campania:
-            st.error("No se encontró la campaña.")
-            return
-    except Exception as e:
-        st.error(f"No se pudo cargar la campaña: {e}")
+    except:
+        st.error("Error cargando campaña.")
         return
 
     clientes = _fetch_campania_clientes(supabase, campaniaid)
-    total_clientes = len(clientes)
 
-    if total_clientes == 0:
-        st.error("La campaña no tiene clientes. Añade alguno antes de continuar.")
+    if len(clientes) == 0:
+        st.error("La campaña no tiene clientes asignados.")
         if st.button("⬅️ Volver a segmentación"):
             st.session_state["campania_step"] = 2
             st.rerun()
         return
 
-    st.subheader("📄 Resumen general")
+    # ======================================================
+    # RESUMEN
+    # ======================================================
+    st.subheader("📄 Datos generales")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.markdown(f"**Nombre:** {campania.get('nombre')}")
-        st.markdown(f"**Acción principal:** {campania.get('tipo_accion')}")
-        st.markdown(f"**Objetivo total:** {campania.get('objetivo_total') or '—'}")
+        st.write(f"**Nombre:** {campania['nombre']}")
+        st.write(f"**Acción principal:** {campania['tipo_accion']}")
 
     with col2:
-        st.markdown(f"**Fecha inicio:** {campania.get('fecha_inicio')}")
-        st.markdown(f"**Fecha fin:** {campania.get('fecha_fin')}")
-        st.markdown(f"**Estado:** `{campania.get('estado')}`")
+        st.write(f"**Inicio:** {campania['fecha_inicio']}")
+        st.write(f"**Fin:** {campania['fecha_fin']}")
 
-    st.markdown("**Descripción:**")
-    st.info(campania.get("descripcion") or "—")
-
-    st.subheader("👥 Clientes asignados")
-    st.write(f"Total: **{total_clientes}**")
+    st.write(f"**Clientes asignados:** {len(clientes)}")
 
     with st.expander("Ver lista de clientes"):
-        import pandas as pd
-
-        df_cli = pd.DataFrame([
+        df = pd.DataFrame([
             {
-                "Cliente": (c.get("cliente") or {}).get("razon_social", "(sin nombre)"),
-                "ID": (c.get("cliente") or {}).get("clienteid")
+                "ID": (c.get("cliente") or {}).get("clienteid"),
+                "Cliente": (c.get("cliente") or {}).get("razon_social")
             }
             for c in clientes
         ])
-
-        st.dataframe(df_cli, hide_index=True, use_container_width=True)
+        st.dataframe(df, hide_index=True, use_container_width=True)
 
     st.divider()
 
-    st.subheader("⚙️ Generación de acciones CRM")
+    # ======================================================
+    # ACTIVACIÓN
+    # ======================================================
+    st.subheader("⚙️ Generación de actuaciones CRM")
 
-    st.info(
-        "Se crearán actuaciones CRM para cada cliente y la campaña pasará a estado **activa**. "
-        "Las actuaciones aparecerán en el Calendario CRM con fechas distribuidas entre inicio y fin."
-    )
+    st.info("Se generarán actuaciones para cada cliente y la campaña pasará a estado **activa**.")
 
-    generar = st.button("🚀 Generar acciones y activar campaña")
+    if st.button("🚀 Generar actuaciones y activar"):
 
-    if generar:
         ok, msg = _validar_activacion(campania, clientes)
         if not ok:
             st.error(msg)
@@ -453,37 +443,29 @@ def step3_confirmacion(supabase, campania, campaniaid):
         with st.spinner("Generando actuaciones..."):
             creadas = _generar_acciones_campania(supabase, campania, clientes)
 
-        if creadas == 0:
-            st.warning("No se crearon actuaciones. Puede que ya existan para esta campaña.")
-        else:
-            st.success(f"Actuaciones generadas: **{creadas}**. La campaña ahora está activa.")
-            st.balloons()
-
+        st.success(f"Actuaciones generadas: {creadas}")
         st.session_state["campania_step"] = 1
-        st.session_state["campaniaid"] = campaniaid
         st.rerun()
 
     if st.button("⬅️ Volver a segmentación"):
         st.session_state["campania_step"] = 2
-        st.session_state["menu_campanias"] = "Segmentación"
         st.rerun()
 
 
+
 # ======================================================
-# 🔧 HELPERS INTERNOS
+# HELPERS
 # ======================================================
 
-def _validar_fechas(fecha_inicio: date, fecha_fin: date):
-    if not fecha_inicio or not fecha_fin:
-        return False, "Debes indicar fecha de inicio y fin."
-    if fecha_fin < fecha_inicio:
+def _validar_fechas(fi, ff):
+    if ff < fi:
         return False, "La fecha fin no puede ser anterior a la fecha inicio."
     return True, None
 
 
 def _validar_segmentacion(clientes):
-    if not clientes or len(clientes) == 0:
-        return False, "La campaña no tiene clientes asignados."
+    if not clientes:
+        return False, "La campaña no tiene clientes."
     return True, None
 
 
@@ -491,8 +473,8 @@ def _validar_activacion(campania, clientes):
     try:
         fi = date.fromisoformat(str(campania["fecha_inicio"]))
         ff = date.fromisoformat(str(campania["fecha_fin"]))
-    except Exception:
-        return False, "Fechas de campaña no válidas."
+    except:
+        return False, "Fechas no válidas."
 
     ok, msg = _validar_fechas(fi, ff)
     if not ok:
@@ -505,132 +487,112 @@ def _validar_activacion(campania, clientes):
     return True, None
 
 
-def _fetch_campania_clientes(supabase, campaniaid: int):
-    """
-    Devuelve registros de campania_cliente + cliente embebido.
-    """
+def _fetch_campania_clientes(supa, campaniaid):
     try:
         res = (
-            supabase.table("campania_cliente")
+            supa.table("campania_cliente")
             .select("campania_clienteid, clienteid, cliente (clienteid, razon_social, trabajadorid)")
             .eq("campaniaid", campaniaid)
             .execute()
         )
         return res.data or []
-    except Exception:
+    except:
         return []
 
 
-def _add_cliente_to_campania(supabase, campaniaid: int, clienteid: int):
-    """
-    Añade cliente respetando el UNIQUE (campaniaid, clienteid).
-    """
+def _add_cliente_to_campania(supa, campaniaid, clienteid):
     try:
-        supabase.table("campania_cliente").insert(
+        supa.table("campania_cliente").insert(
             {"campaniaid": campaniaid, "clienteid": clienteid}
         ).execute()
     except Exception as e:
-        st.warning(f"No se pudo añadir el cliente (puede que ya esté en la campaña). Detalle: {e}")
+        st.warning("No se pudo añadir el cliente (ya existe o error en BD).")
 
 
-def _campania_tiene_actuaciones(supabase, campaniaid: int) -> bool:
-    """
-    Comprueba si existen registros en campania_actuacion para esta campaña.
-    """
+def _campania_tiene_actuaciones(supa, campaniaid):
     try:
         res = (
-            supabase.table("campania_actuacion")
+            supa.table("campania_actuacion")
             .select("actuacionid", count="exact")
             .eq("campaniaid", campaniaid)
             .limit(1)
             .execute()
         )
-        data = res.data or []
-        return len(data) > 0
-    except Exception:
+        return bool(res.data)
+    except:
         return False
 
 
-def _generar_acciones_campania(supabase, campania, clientes):
-    """
-    Genera registros en crm_actuacion y en campania_actuacion.
+#
+# ======================================================
+# GENERACIÓN DE ACTUACIONES
+# ======================================================
+#
 
-    NO usa columna campaniaid en crm_actuacion (porque no existe),
-    la relación se guarda en campania_actuacion.
-    """
+def _generar_acciones_campania(supa, campania, clientes):
+
     campaniaid = campania["campaniaid"]
 
-    # Evitar duplicar tareas si ya existen vinculadas
-    if _campania_tiene_actuaciones(supabase, campaniaid):
-        st.warning("Las actuaciones de esta campaña ya existen. No se crearán duplicados.")
+    if _campania_tiene_actuaciones(supa, campaniaid):
         return 0
 
     try:
         fi = date.fromisoformat(str(campania["fecha_inicio"]))
         ff = date.fromisoformat(str(campania["fecha_fin"]))
-    except Exception:
+    except:
         fi = date.today()
         ff = fi
 
+    tipo = campania.get("tipo_accion") or "llamada"
+    trab_default = st.session_state.get("trabajadorid")
     dias = max((ff - fi).days + 1, 1)
-
-    tipo_accion = campania.get("tipo_accion") or "llamada"
-    trabajador_por_defecto = st.session_state.get("trabajadorid")
 
     creadas = 0
 
     for idx, c in enumerate(clientes):
         cli = c.get("cliente") or {}
         clienteid = cli.get("clienteid")
-
         if not clienteid:
             continue
 
-        # Fecha distribuida en el rango de la campaña
         offset = idx % dias
-        fecha_venc = fi + timedelta(days=offset)
-        fecha_accion = datetime.combine(fecha_venc, time(9, 0))
+        fecha = fi + timedelta(days=offset)
 
-        trabajadorid = cli.get("trabajadorid") or trabajador_por_defecto
+        trabajadorid = cli.get("trabajadorid") or trab_default
+        if not trabajadorid:
+            continue
 
-        actuacion_payload = {
+        slot = datetime.combine(fecha, time(9, 0))
+
+        payload = {
             "clienteid": clienteid,
             "trabajadorid": trabajadorid,
-            "trabajador_asignadoid": trabajadorid,
-            "canal": tipo_accion,
+            "estado": "Pendiente",
+            "titulo": f"Campaña: {campania['nombre']}",
+            "canal": tipo,
             "descripcion": campania.get("descripcion") or "",
-            "estado": "Pendiente",  # respeta el CHECK de crm_actuacion
-            "fecha_accion": fecha_accion.isoformat(),
-            "fecha_vencimiento": fecha_venc.isoformat(),
+            "fecha_accion": slot.isoformat(),
+            "fecha_vencimiento": fecha.isoformat(),
             "prioridad": "Media",
-            "titulo": f"Campaña: {campania.get('nombre')}",
         }
 
         try:
-            res_act = supabase.table("crm_actuacion").insert(actuacion_payload).execute()
-            if not res_act.data:
+            res = supa.table("crm_actuacion").insert(payload).execute()
+            if not res.data:
                 continue
-            act_id = res_act.data[0]["crm_actuacionid"]
 
-            supabase.table("campania_actuacion").insert(
-                {
-                    "campaniaid": campaniaid,
-                    "actuacionid": act_id,
-                    "clienteid": clienteid,
-                }
+            actid = res.data[0]["crm_actuacionid"]
+
+            supa.table("campania_actuacion").insert(
+                {"campaniaid": campaniaid, "actuacionid": actid, "clienteid": clienteid}
             ).execute()
 
             creadas += 1
+
         except Exception as e:
             st.error(f"Error creando actuación para cliente {clienteid}: {e}")
 
-    # Cambiar estado a activa si se ha creado algo
     if creadas > 0:
-        try:
-            supabase.table("campania").update({"estado": "activa"}).eq(
-                "campaniaid", campaniaid
-            ).execute()
-        except Exception as e:
-            st.error(f"Error actualizando estado de campaña: {e}")
+        supa.table("campania").update({"estado": "activa"}).eq("campaniaid", campaniaid).execute()
 
     return creadas
