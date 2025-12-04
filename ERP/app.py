@@ -3,7 +3,21 @@
 # ======================================================
 
 import streamlit as st
+
+# ======================================================
+# ⚙️ CONFIGURACIÓN GLOBAL (DEBE IR ARRIBA DEL TODO)
+# ======================================================
+st.set_page_config(
+    page_title="ERP EnteNova Gnosis",
+    page_icon="🧱",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
 from datetime import date
+
+from modules.ai_querybot.ai_page import render_ai_page
+
 
 # ======================================================
 # 🎨 TEMA CORPORATIVO ORBE
@@ -11,10 +25,12 @@ from datetime import date
 from modules.orbe_theme import apply_orbe_theme
 apply_orbe_theme()
 
+
 # ======================================================
 # 🔗 CONEXIÓN A SUPABASE
 # ======================================================
 from modules.supa_client import get_supabase_client
+
 
 # ======================================================
 # 🌐 CORE UI / NAVEGACIÓN
@@ -22,6 +38,7 @@ from modules.supa_client import get_supabase_client
 from modules.topbar import render_topbar
 from modules.login import render_login
 from modules.diagramas import render_diagramas
+
 
 # ======================================================
 # 📦 MÓDULOS PRINCIPALES
@@ -38,6 +55,8 @@ from modules.impuesto_lista import render_impuesto_lista
 from modules.tarifa_admin import render_tarifa_admin
 from modules.incidencia_lista import render_incidencia_lista
 from modules.simulador_pedido import render_simulador_pedido
+
+# Campañas
 from modules.campania.campania_lista import render as render_campania_lista
 from modules.campania.campania_form import render as render_campania_form
 from modules.campania.campania_progreso import render as render_campania_progreso
@@ -45,17 +64,10 @@ from modules.campania.campania_detalle import render as render_campania_detalle
 from modules.campania.campania_informes import render as render_campania_informes
 from modules.campania.campania_router import render_campania_router
 
+# 🤖 IA – Asistente de datos
+from modules.ai_querybot.ai_page import render_ai_page
 
-
-# ======================================================
-# ⚙️ CONFIGURACIÓN GLOBAL
-# ======================================================
-st.set_page_config(
-    page_title="ERP EnteNova Gnosis",
-    page_icon="🧱",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+from modules.ai_querybot.settings import client
 
 # ======================================================
 # 🧩 CONEXIÓN A BASE DE DATOS
@@ -64,11 +76,12 @@ supabase = get_supabase_client()
 try:
     supabase.table("cliente").select("clienteid").limit(1).execute()
     st.sidebar.success("✅ Conectado a Supabase")
-    st.session_state["supa"] = supabase      # 🔸 AÑADIR ESTO
+    st.session_state["supa"] = supabase
 
 except Exception as e:
     st.sidebar.error("❌ Error de conexión con Supabase")
     st.sidebar.caption(str(e))
+
 
 # ======================================================
 # 🧩 CONTROL DE SESIÓN
@@ -78,15 +91,16 @@ if "user_email" not in st.session_state:
     render_login()
     st.stop()
 
-# Variables base
 st.session_state.setdefault("menu_principal", "📊 Panel general")
 st.session_state.setdefault("rol_usuario", "Editor")
 st.session_state.setdefault("tipo_usuario", "trabajador")
+
 
 # ======================================================
 # 🎨 TOPBAR GLOBAL
 # ======================================================
 render_topbar(supabase)
+
 
 # ======================================================
 # 🧭 MENÚ LATERAL
@@ -107,6 +121,7 @@ else:
 
 tipo_usuario = st.session_state.get("tipo_usuario")
 
+
 # ======================================================
 # 🧩 MENÚ DINÁMICO (por rol)
 # ======================================================
@@ -123,10 +138,12 @@ if tipo_usuario == "trabajador":
         "🏷️ Gestión de tarifas",
         "🧮 Simulador de tarifas",
         "🗓️ Calendario CRM",
-        "📣 Campañas",              # 👈 NUEVO
+        "📣 Campañas",
         "💬 Historial / Comunicación",
         "⚠️ Incidencias",
         "📈 Diagramas y métricas",
+        "🤖 IA · Consultas inteligentes",
+        "🧪 Feedback IA",
         "🚪 Cerrar sesión",
     ]
 
@@ -143,15 +160,13 @@ else:
 
 opcion = st.sidebar.radio("Selecciona módulo:", menu_principal, key="menu_principal")
 
+
 # ======================================================
 # 📦 ROUTER PRINCIPAL
 # ======================================================
-
-# 🔐 LOGIN
 if opcion == "🔐 Iniciar sesión":
     render_login()
 
-# 🚪 CERRAR SESIÓN
 elif opcion == "🚪 Cerrar sesión":
     for key in [
         "cliente_actual",
@@ -168,7 +183,6 @@ elif opcion == "🚪 Cerrar sesión":
     st.success("✅ Sesión cerrada correctamente.")
     st.rerun()
 
-# 📊 PANEL GENERAL
 elif opcion == "📊 Panel general":
     try:
         from modules.dashboard_general import render_dashboard
@@ -176,73 +190,64 @@ elif opcion == "📊 Panel general":
     except Exception as e:
         st.warning(f"⚠️ No se pudo cargar el dashboard general: {e}")
 
-# 👥 CLIENTES
 elif opcion == "👥 Gestión de clientes":
     st.sidebar.subheader("👥 Gestión de clientes")
     render_cliente_lista(supabase)
 
-# 🧾 POTENCIALES
 elif opcion == "🧾 Gestión de potenciales":
     st.sidebar.subheader("🧾 Clientes potenciales / Leads")
     render_cliente_potencial_lista(supabase)
 
-# 📦 PRODUCTOS
 elif opcion == "📦 Gestión de productos":
     st.sidebar.subheader("📦 Catálogo de productos")
     render_producto_lista(supabase)
 
-# 💼 PRESUPUESTOS
 elif opcion == "💼 Gestión de presupuestos":
-    st.sidebar.subheader("💼 Presupuestos")
+    st.sidebar.subheader("💼 Gestión de presupuestos")
     render_presupuesto_lista(supabase)
 
-# 🧮 PEDIDOS
+
 elif opcion == "🧮 Gestión de pedidos":
     st.sidebar.subheader("🧮 Pedidos y facturación")
     st.session_state["pedido_tipo_filtro"] = None
     st.session_state["modo_incidencias"] = False
     render_pedido_lista(supabase)
 
-# 🔁 DEVOLUCIONES
 elif opcion == "🔁 Devoluciones":
     st.sidebar.subheader("🔁 Pedidos de devolución")
     st.session_state["pedido_tipo_filtro"] = "Devolución"
     st.session_state["modo_incidencias"] = False
     render_pedido_lista(supabase)
-    st.session_state["pedido_tipo_filtro"] = None  # limpiar
+    st.session_state["pedido_tipo_filtro"] = None
 
-# 🧾 IMPUESTOS
 elif opcion == "🧾 Impuestos":
     st.sidebar.subheader("🧾 Gestión de impuestos")
     render_impuesto_lista(supabase)
 
-# 🏷️ TARIFAS
 elif opcion == "🏷️ Gestión de tarifas":
     st.sidebar.subheader("🏷️ Administración de tarifas")
     render_tarifa_admin(supabase)
 
-# 🧮 SIMULADOR DE TARIFAS
 elif opcion == "🧮 Simulador de tarifas":
     st.sidebar.subheader("🧮 Simulador de precios y tarifas")
     render_simulador_pedido(supabase)
 
-# 🗓️ CRM
+elif opcion == "🤖 IA · Consultas inteligentes":
+    render_ai_page()
+
+
 elif opcion == "🗓️ Calendario CRM":
     st.sidebar.subheader("🗓️ Acciones y calendario")
     render_crm_acciones(supabase)
 
-# 📣 CAMPAÑAS
 elif opcion == "📣 Campañas":
     st.sidebar.subheader("📣 Campañas comerciales")
     render_campania_router(supabase)
 
-
-# 💬 HISTORIAL
 elif opcion == "💬 Historial / Comunicación":
     st.sidebar.subheader("💬 Historial de mensajes")
     render_historial(supabase)
 
-# ⚠️ INCIDENCIAS
 elif opcion == "⚠️ Incidencias":
     st.sidebar.subheader("⚠️ Gestión de incidencias")
     try:
@@ -250,13 +255,12 @@ elif opcion == "⚠️ Incidencias":
     except Exception as e:
         st.warning(f"⚠️ No se pudo cargar el módulo de incidencias: {e}")
 
-# 📈 DIAGRAMAS
 elif opcion == "📈 Diagramas y métricas":
     render_diagramas()
 
-# NUEVO LEAD
 elif opcion == "Nuevo lead":
     render_lead_form()
+
 
 # ======================================================
 # 📋 PIE DE PÁGINA
