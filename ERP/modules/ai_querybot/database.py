@@ -1,7 +1,6 @@
 # database.py
 import os
 import pandas as pd
-import pyodbc
 from .settings import SUPABASE_URL
 
 from sqlalchemy import create_engine, text
