@@ -3,7 +3,6 @@ pandas==2.3.3
 numpy==1.26.4
 
 supabase==2.4.0
-
 SQLAlchemy==2.0.25
 psycopg2-binary==2.9.9
 
