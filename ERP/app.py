@@ -19,19 +19,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ======================================================
-# 📌 FUNCIÓN LAUNCHER DEL DATAQUERYBOT
-# ======================================================
 def launch_dataquerybot():
     ruta_bot = os.path.join(os.getcwd(), "dataquerybot")
-
     env = os.environ.copy()
-
-    env["SUPABASE_URL"] = (
-        "postgresql://postgres:EnteNova2025@"
-        "db.gqhrbvusvcaytcbnusdx.supabase.co:5432/postgres?sslmode=require"
-    )
-
     env["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
 
     subprocess.Popen(
@@ -40,8 +30,6 @@ def launch_dataquerybot():
         env=env,
         shell=True
     )
-
-    webbrowser.open_new_tab("http://localhost:8501")
 
 # ======================================================
 # 🎨 TEMA CORPORATIVO ORBE
