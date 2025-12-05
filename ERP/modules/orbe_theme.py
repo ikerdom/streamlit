@@ -72,6 +72,7 @@ def apply_orbe_theme():
        5) BOTONES — tamaño mayor y texto centrado
        ================================ */
 
+    /* Botones del CUERPO PRINCIPAL */
     div.stButton > button {
         display: inline-flex !important;
         align-items: center !important;
@@ -117,6 +118,34 @@ def apply_orbe_theme():
         display: inline-block !important;
         vertical-align: middle !important;
         line-height: 1 !important;
+    }
+
+
+    /* ⭐⭐⭐ FIX CRÍTICO — BOTONES DEL SIDEBAR (invisibles sin esto) ⭐⭐⭐ */
+    [data-testid="stSidebar"] div.stButton > button {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 0.45rem !important;
+
+        background: linear-gradient(90deg,#22c55e,#16a34a) !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 10px !important;
+
+        font-size: 1.08rem !important;
+        font-weight: 700 !important;
+
+        padding: 0.45rem 0.60rem !important;
+        margin-top: 0.50rem !important;
+
+        width: 100% !important;
+        min-height: 2.8rem !important;
+    }
+
+    [data-testid="stSidebar"] div.stButton > button:hover {
+        background: linear-gradient(90deg,#16a34a,#15803d) !important;
+        transform: translateY(-1px) !important;
     }
 
     /* ================================

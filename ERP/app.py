@@ -3,9 +3,14 @@
 # ======================================================
 
 import streamlit as st
+import subprocess
+import webbrowser
+import os
+import sys
+from datetime import date
 
 # ======================================================
-# ⚙️ CONFIGURACIÓN GLOBAL (DEBE IR ARRIBA DEL TODO)
+# ⚙️ CONFIGURACIÓN GLOBAL
 # ======================================================
 st.set_page_config(
     page_title="ERP EnteNova Gnosis",
@@ -14,10 +19,29 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-from datetime import date
+# ======================================================
+# 📌 FUNCIÓN LAUNCHER DEL DATAQUERYBOT
+# ======================================================
+def launch_dataquerybot():
+    ruta_bot = os.path.join(os.getcwd(), "dataquerybot")
 
-from modules.ai_querybot.ai_page import render_ai_page
+    env = os.environ.copy()
 
+    env["SUPABASE_URL"] = (
+        "postgresql://postgres:EnteNova2025@"
+        "db.gqhrbvusvcaytcbnusdx.supabase.co:5432/postgres?sslmode=require"
+    )
+
+    env["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+
+    subprocess.Popen(
+        [sys.executable, "-m", "streamlit", "run", "app.py"],
+        cwd=ruta_bot,
+        env=env,
+        shell=True
+    )
+
+    webbrowser.open_new_tab("http://localhost:8501")
 
 # ======================================================
 # 🎨 TEMA CORPORATIVO ORBE
@@ -25,12 +49,19 @@ from modules.ai_querybot.ai_page import render_ai_page
 from modules.orbe_theme import apply_orbe_theme
 apply_orbe_theme()
 
-
 # ======================================================
 # 🔗 CONEXIÓN A SUPABASE
 # ======================================================
 from modules.supa_client import get_supabase_client
+supabase = get_supabase_client()
 
+try:
+    supabase.table("cliente").select("clienteid").limit(1).execute()
+    st.sidebar.success("✅ Conectado a Supabase")
+    st.session_state["supa"] = supabase
+except Exception as e:
+    st.sidebar.error("❌ Error de conexión con Supabase")
+    st.sidebar.caption(str(e))
 
 # ======================================================
 # 🌐 CORE UI / NAVEGACIÓN
@@ -38,7 +69,6 @@ from modules.supa_client import get_supabase_client
 from modules.topbar import render_topbar
 from modules.login import render_login
 from modules.diagramas import render_diagramas
-
 
 # ======================================================
 # 📦 MÓDULOS PRINCIPALES
@@ -64,25 +94,6 @@ from modules.campania.campania_detalle import render as render_campania_detalle
 from modules.campania.campania_informes import render as render_campania_informes
 from modules.campania.campania_router import render_campania_router
 
-# 🤖 IA – Asistente de datos
-from modules.ai_querybot.ai_page import render_ai_page
-
-from modules.ai_querybot.settings import client
-
-# ======================================================
-# 🧩 CONEXIÓN A BASE DE DATOS
-# ======================================================
-supabase = get_supabase_client()
-try:
-    supabase.table("cliente").select("clienteid").limit(1).execute()
-    st.sidebar.success("✅ Conectado a Supabase")
-    st.session_state["supa"] = supabase
-
-except Exception as e:
-    st.sidebar.error("❌ Error de conexión con Supabase")
-    st.sidebar.caption(str(e))
-
-
 # ======================================================
 # 🧩 CONTROL DE SESIÓN
 # ======================================================
@@ -95,12 +106,10 @@ st.session_state.setdefault("menu_principal", "📊 Panel general")
 st.session_state.setdefault("rol_usuario", "Editor")
 st.session_state.setdefault("tipo_usuario", "trabajador")
 
-
 # ======================================================
 # 🎨 TOPBAR GLOBAL
 # ======================================================
 render_topbar(supabase)
-
 
 # ======================================================
 # 🧭 MENÚ LATERAL
@@ -121,9 +130,8 @@ else:
 
 tipo_usuario = st.session_state.get("tipo_usuario")
 
-
 # ======================================================
-# 🧩 MENÚ DINÁMICO (por rol)
+# 🧩 MENÚ DINÁMICO
 # ======================================================
 if tipo_usuario == "trabajador":
     menu_principal = [
@@ -160,7 +168,6 @@ else:
 
 opcion = st.sidebar.radio("Selecciona módulo:", menu_principal, key="menu_principal")
 
-
 # ======================================================
 # 📦 ROUTER PRINCIPAL
 # ======================================================
@@ -169,17 +176,12 @@ if opcion == "🔐 Iniciar sesión":
 
 elif opcion == "🚪 Cerrar sesión":
     for key in [
-        "cliente_actual",
-        "cliente_creado",
-        "user_email",
-        "user_nombre",
-        "tipo_usuario",
-        "rol_usuario",
-        "trabajadorid",
-        "pedido_tipo_filtro",
-        "modo_incidencias",
+        "cliente_actual", "cliente_creado", "user_email", "user_nombre",
+        "tipo_usuario", "rol_usuario", "trabajadorid",
+        "pedido_tipo_filtro", "modo_incidencias"
     ]:
         st.session_state.pop(key, None)
+
     st.success("✅ Sesión cerrada correctamente.")
     st.rerun()
 
@@ -206,7 +208,6 @@ elif opcion == "💼 Gestión de presupuestos":
     st.sidebar.subheader("💼 Gestión de presupuestos")
     render_presupuesto_lista(supabase)
 
-
 elif opcion == "🧮 Gestión de pedidos":
     st.sidebar.subheader("🧮 Pedidos y facturación")
     st.session_state["pedido_tipo_filtro"] = None
@@ -232,9 +233,12 @@ elif opcion == "🧮 Simulador de tarifas":
     st.sidebar.subheader("🧮 Simulador de precios y tarifas")
     render_simulador_pedido(supabase)
 
-elif opcion == "🤖 IA · Consultas inteligentes":
-    render_ai_page()
-
+elif opcion == "🤖 IA · Consultas Inteligentes":
+    st.subheader("🤖 IA · Consultas Inteligentes")
+    st.info("Haz clic para abrir el DataQueryBot completo en una nueva ventana.")
+    
+    if st.button("🔗 Abrir DataQueryBot Completo"):
+        launch_dataquerybot()
 
 elif opcion == "🗓️ Calendario CRM":
     st.sidebar.subheader("🗓️ Acciones y calendario")
@@ -257,10 +261,10 @@ elif opcion == "⚠️ Incidencias":
 
 elif opcion == "📈 Diagramas y métricas":
     render_diagramas()
+    
 
 elif opcion == "Nuevo lead":
     render_lead_form()
-
 
 # ======================================================
 # 📋 PIE DE PÁGINA
