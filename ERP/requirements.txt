@@ -1,6 +1,6 @@
 streamlit==1.51.0
 pandas==2.3.3
-numpy==2.0.2
+numpy==1.26.4
 
 supabase==2.4.0
 
