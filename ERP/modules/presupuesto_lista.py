@@ -1,5 +1,3 @@
-# modules/presupuesto_lista.py
-
 import io
 import math
 import base64
@@ -8,10 +6,17 @@ from datetime import date, datetime, timedelta
 import pandas as pd
 import streamlit as st
 
+from modules.orbe_theme import apply_orbe_theme
 from modules.pedido_models import load_clientes, load_trabajadores
 from modules.presupuesto_form import render_presupuesto_form
 from modules.presupuesto_detalle import render_presupuesto_detalle
-from modules.orbe_theme import apply_orbe_theme
+
+# UI unificada (como cliente_lista)
+from modules.ui.page import page
+from modules.ui.section import section
+from modules.ui.card import card
+from modules.ui.empty import empty_state
+
 
 # ======================
 # Helpers
@@ -359,58 +364,55 @@ def emitir_presupuesto(supabase, presupuestoid: int, estados: dict):
     except Exception as e:
         st.error(f"❌ Error al emitir presupuesto: {e}")
 
-
-# ======================
-# Tarjeta (muestra también ID interno)
-# ======================
-
 def _render_card(r, supabase, clientes, trabajadores, estados):
     cli = _label_from(clientes, r.get("clienteid"))
     tra = _label_from(trabajadores, r.get("trabajadorid"))
     est_nombre = _label_from(estados, r.get("estado_presupuestoid"))
 
     # Color estado
-    if "acept" in (est_nombre or "").lower():
+    e = (est_nombre or "").lower()
+    if "acept" in e:
         color_estado = "#10b981"
-    elif "rechaz" in (est_nombre or "").lower():
+    elif "rechaz" in e:
         color_estado = "#ef4444"
-    elif "convert" in (est_nombre or "").lower():
+    elif "convert" in e:
         color_estado = "#6b7280"
     else:
         color_estado = "#3b82f6"
 
     pres_id = r.get("presupuestoid")
+    numero = _safe(r.get("numero"))
+    fecha = _safe(r.get("fecha_presupuesto"))
+    total = _safe(r.get("total_estimada"))
 
-    st.markdown(
-        f"""
-        <div style="border:1px solid #e5e7eb;border-radius:12px;padding:12px;margin-bottom:10px;background:#fff;">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
-                <div style="display:flex;align-items:center;gap:10px;">
-                    <span style="background:#111827;color:#fff;padding:2px 8px;border-radius:999px;font-size:0.75rem;">
-                        #{pres_id}
-                    </span>
-                    <div><b>{_safe(r.get('numero'))}</b> — {_safe(cli)}</div>
-                </div>
-                <span style="background:{color_estado};color:#fff;padding:3px 8px;border-radius:8px;font-size:0.8rem;">
-                    {est_nombre or '-'}
+    with card():
+        # Header card
+        st.markdown(
+            f"""
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+              <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                <span style="background:#111827;color:#fff;padding:2px 8px;border-radius:999px;font-size:0.75rem;">
+                  #{pres_id}
                 </span>
+                <div style="font-weight:700;">{numero}</div>
+              </div>
+              <span style="background:{color_estado};color:#fff;padding:3px 10px;border-radius:999px;font-size:0.8rem;font-weight:600;">
+                {est_nombre or '-'}
+              </span>
             </div>
-            <div style="margin-top:4px;color:#555;font-size:0.9rem;">
-                📅 {_safe(r.get("fecha_presupuesto"))} &nbsp; | &nbsp; 👤 {_safe(tra)} &nbsp; | &nbsp; 💶 {_safe(r.get("total_estimada"))} €
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+            """,
+            unsafe_allow_html=True,
+        )
 
-    if st.button(
-        "📄 Ver ficha",
-        key=f"pres_ficha_{pres_id}",
-        use_container_width=True,
-    ):
-        st.session_state["presupuesto_modal_id"] = pres_id
-        st.session_state["show_presupuesto_modal"] = True
-        st.rerun()
+        st.caption(f"👤 {_safe(cli)}  ·  🧑 {_safe(tra)}")
+        st.caption(f"📅 {fecha}  ·  💶 {total} €")
+
+        st.markdown("")
+
+        if st.button("📄 Ficha", key=f"pres_ficha_{pres_id}", use_container_width=True):
+            st.session_state["presupuesto_modal_id"] = pres_id
+            st.session_state["show_presupuesto_modal"] = True
+            st.rerun()
 
 
 def _render_table(rows):
@@ -441,13 +443,10 @@ def _render_table(rows):
         mime="text/csv",
     )
 
-
-# ======================================================
-# MODAL PRESUPUESTO COMPLETO (versión unificada)
-# ======================================================
-
 def _render_presupuesto_modal(supabase, clientes, trabajadores, estados):
     from modules.presupuesto_detalle import recalcular_lineas_presupuesto
+    from modules.presupuesto_convert import convertir_presupuesto_a_pedido
+    from modules.presupuesto_pdf import _build_data_real, build_pdf_bytes, upload_pdf_to_storage
 
     pid = st.session_state.get("presupuesto_modal_id")
     if not pid:
@@ -464,164 +463,202 @@ def _render_presupuesto_modal(supabase, clientes, trabajadores, estados):
         )
         pres = getattr(pres_res, "data", None) or {}
         if not pres:
-            st.warning("⚠️ No se encontró el presupuesto.")
+            empty_state("No se encontró el presupuesto.", icon="⚠️")
             return
     except Exception as e:
         st.error(f"❌ Error cargando presupuesto: {e}")
         return
 
     est_nombre = _label_from(estados, pres.get("estado_presupuestoid"))
+    est_lower = (est_nombre or "").lower()
     bloqueado = _is_bloqueado(est_nombre)
 
-    # ================= CABECERA =================
-    st.markdown(
-        f"### 📄 Ficha del presupuesto {pres.get('numero') or '—'} "
-        f"<span style='color:#6b7280'>(ID interno: #{pid})</span> — "
-        f"Estado: **{est_nombre or 'Sin estado'}**",
-        unsafe_allow_html=True,
-    )
-    st.markdown("---")
+    # Badge color (igual idea que cards)
+    if "acept" in est_lower:
+        color_estado = "#10b981"
+    elif "rechaz" in est_lower:
+        color_estado = "#ef4444"
+    elif "convert" in est_lower:
+        color_estado = "#6b7280"
+    else:
+        color_estado = "#3b82f6"
 
-    # ================= BOTONERA SUPERIOR =================
-    c1, c2 = st.columns([1, 1])
-    with c1:
-        if st.button("⬅️ Cerrar ficha", use_container_width=True):
-            st.session_state["show_presupuesto_modal"] = False
-            st.session_state["presupuesto_modal_id"] = None
-            st.rerun()
-    with c2:
-        if st.button(
-            "🗑️ Eliminar presupuesto",
-            use_container_width=True,
-            disabled=bloqueado,
-        ):
-            try:
-                supabase.table("presupuesto_detalle").delete().eq(
-                    "presupuestoid", pid
-                ).execute()
-                supabase.table("presupuesto").delete().eq(
-                    "presupuestoid", pid
-                ).execute()
-                st.success("🗑️ Presupuesto eliminado correctamente.")
+    numero = pres.get("numero") or "—"
+    total = pres.get("total_estimada")
+
+    # ================= CABECERA (card) =================
+    with card():
+        top1, top2 = st.columns([3, 2])
+        with top1:
+            st.markdown(
+                f"""
+                <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+                  <div style="font-size:1.15rem;font-weight:800;">📄 Presupuesto {numero}</div>
+                  <span style="background:#111827;color:#fff;padding:2px 10px;border-radius:999px;font-size:0.8rem;">
+                    ID #{pid}
+                  </span>
+                  <span style="background:{color_estado};color:#fff;padding:2px 10px;border-radius:999px;font-size:0.8rem;font-weight:700;">
+                    {est_nombre or "Sin estado"}
+                  </span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.caption(
+                f"📅 {_safe(pres.get('fecha_presupuesto'))} · ⏳ Validez: {_safe(pres.get('fecha_validez'))}"
+            )
+
+        with top2:
+            colm1, colm2 = st.columns(2)
+            with colm1:
+                try:
+                    st.metric("Total", f"{float(total or 0):,.2f} €")
+                except Exception:
+                    st.metric("Total", _safe(total))
+            with colm2:
+                st.metric("ClienteID", _safe(pres.get("clienteid")))
+
+        # acciones rápidas
+        a1, a2, a3, a4 = st.columns([1, 1, 1, 1])
+        with a1:
+            if st.button("⬅️ Volver", use_container_width=True):
                 st.session_state["show_presupuesto_modal"] = False
                 st.session_state["presupuesto_modal_id"] = None
                 st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error al eliminar: {e}")
+        with a2:
+            st.button("🖨️ Imprimir", use_container_width=True, disabled=True)
+        with a3:
+            if st.button("🗑️ Eliminar", use_container_width=True, disabled=bloqueado):
+                try:
+                    supabase.table("presupuesto_detalle").delete().eq("presupuestoid", pid).execute()
+                    supabase.table("presupuesto").delete().eq("presupuestoid", pid).execute()
+                    st.success("🗑️ Presupuesto eliminado correctamente.")
+                    st.session_state["show_presupuesto_modal"] = False
+                    st.session_state["presupuesto_modal_id"] = None
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error al eliminar: {e}")
+        with a4:
+            if "acept" in est_lower:
+                if st.button("🧾 Convertir", use_container_width=True):
+                    convertir_presupuesto_a_pedido(supabase, pid)
+                    st.rerun()
+            else:
+                st.button("🧾 Convertir", use_container_width=True, disabled=True)
 
-    # ================= ESTADO / BLOQUEO =================
+    # ================= BLOQUEO =================
     if bloqueado:
-        st.warning(
-            "🔒 Este presupuesto está **Aceptado o Convertido** y no se puede editar."
-        )
+        st.warning("🔒 Este presupuesto está **Aceptado o Convertido** y no se puede editar.")
     else:
         st.info("✏️ Presupuesto editable (estado: Borrador o Enviado).")
 
-    # ================= CONVERTIR A PEDIDO =================
-    from modules.presupuesto_convert import convertir_presupuesto_a_pedido
+    # ================= TABS =================
+    tab1, tab2, tab3 = st.tabs(["🧾 Cabecera", "📦 Líneas", "📄 PDF"])
 
-    # Ojo: ajusta el ID de estado 'Aceptado' según tu tabla si hace falta
-    if est_nombre and "acept" in est_nombre.lower():
-        st.markdown("---")
-        if st.button("🧾 Convertir a Pedido", use_container_width=True):
-            convertir_presupuesto_a_pedido(supabase, pid)
-            st.rerun()
+    # -------------------------------------------------
+    # TAB 1 — Cabecera
+    # -------------------------------------------------
+    with tab1:
+        with section("Datos del presupuesto", icon="🧾"):
+            render_presupuesto_form(
+                supabase,
+                presupuestoid=pid,
+                bloqueado=bloqueado,
+            )
 
-    # ================= RECALCULAR LÍNEAS =================
-    st.markdown("---")
+        # Recalcular (sección aparte)
+        with section("Recalcular líneas por tarifas", icon="🔁"):
+            fecha_manual = st.date_input(
+                "Fecha de cálculo (opcional)",
+                value=None,
+                key=f"recalc_fecha_{pid}",
+                help="Si se indica, se usará esta fecha en lugar de la fecha de validez.",
+                disabled=bloqueado,
+            )
 
-    st.markdown("#### 🔁 Recalcular líneas según tarifas vigentes")
-    fecha_manual = st.date_input(
-        "📅 Fecha de cálculo (opcional)",
-        value=None,
-        key=f"recalc_fecha_{pid}",
-        help="Si se indica, se usará esta fecha en lugar de la fecha de validez.",
-    )
+            if st.button("🔁 Recalcular líneas", use_container_width=True, disabled=bloqueado):
+                try:
+                    fecha_calculo = fecha_manual or pres.get("fecha_validez")
+                    recalcular_lineas_presupuesto(
+                        supabase,
+                        presupuestoid=pid,
+                        clienteid=pres.get("clienteid"),
+                        fecha_validez=fecha_calculo,
+                    )
+                    st.success("✅ Líneas recalculadas.")
+                    st.rerun()
+                except Exception as _e:
+                    st.error(f"❌ No se pudo recalcular: {_e}")
 
-    if st.button(
-        "🔁 Recalcular líneas", use_container_width=True, disabled=bloqueado
-    ):
-        try:
-            fecha_calculo = fecha_manual or pres.get("fecha_validez")
-            recalcular_lineas_presupuesto(
+    # -------------------------------------------------
+    # TAB 2 — Líneas
+    # -------------------------------------------------
+    with tab2:
+        with section("Detalle de líneas", icon="📦"):
+            render_presupuesto_detalle(
                 supabase,
                 presupuestoid=pid,
                 clienteid=pres.get("clienteid"),
-                fecha_validez=fecha_calculo,
+                fecha_validez=pres.get("fecha_validez"),
+                bloqueado=bloqueado,
             )
-            st.rerun()
-        except Exception as _e:
-            st.error(f"❌ No se pudo recalcular: {_e}")
 
-    # ================= FORMULARIO Y DETALLE =================
-    st.markdown("---")
-    render_presupuesto_form(
-        supabase,
-        presupuestoid=pid,
-        bloqueado=bloqueado,
-    )
-    st.markdown("---")
-    render_presupuesto_detalle(
-        supabase,
-        presupuestoid=pid,
-        clienteid=pres.get("clienteid"),
-        fecha_validez=pres.get("fecha_validez"),
-        bloqueado=bloqueado,
-    )
+    # -------------------------------------------------
+    # TAB 3 — PDF
+    # -------------------------------------------------
+    with tab3:
+        with section("Documento del presupuesto (PDF)", icon="📄"):
+            try:
+                data_real = _build_data_real(supabase, pid)
+                pdf_bytes, file_name = build_pdf_bytes(data_real)
 
-    # ================= PDF – Generación estándar (contexto unificado) =================
-    st.markdown("---")
-    st.markdown("#### 🧾 Documento del presupuesto (PDF)")
-
-    from modules.presupuesto_pdf import _build_data_real, build_pdf_bytes, upload_pdf_to_storage
-
-    try:
-        data_real = _build_data_real(supabase, pid)
-        pdf_bytes, file_name = build_pdf_bytes(data_real)
-
-        pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
-        st.markdown(
-            f'<iframe src="data:application/pdf;base64,{pdf_b64}" width="100%" height="720px"></iframe>',
-            unsafe_allow_html=True,
-        )
-
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            st.download_button(
-                "⬇️ Descargar PDF",
-                data=pdf_bytes,
-                file_name=file_name,
-                mime="application/pdf",
-                use_container_width=True,
-            )
-        with col2:
-            if st.button("☁️ Subir a Storage", use_container_width=True):
-                url = upload_pdf_to_storage(
-                    supabase, pdf_bytes, file_name, bucket="presupuestos"
+                pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+                st.markdown(
+                    f'<iframe src="data:application/pdf;base64,{pdf_b64}" width="100%" height="720px"></iframe>',
+                    unsafe_allow_html=True,
                 )
-                st.success("📤 PDF subido a Supabase Storage.")
-                if url:
-                    st.markdown(f"🔗 [Abrir PDF en Storage]({url})")
-    except Exception as e:
-        st.error(f"❌ Error generando PDF: {e}")
 
-
-# ======================================================
-# Render principal
-# ======================================================
+                d1, d2 = st.columns([2, 1])
+                with d1:
+                    st.download_button(
+                        "⬇️ Descargar PDF",
+                        data=pdf_bytes,
+                        file_name=file_name,
+                        mime="application/pdf",
+                        use_container_width=True,
+                    )
+                with d2:
+                    if st.button("☁️ Subir a Storage", use_container_width=True):
+                        url = upload_pdf_to_storage(
+                            supabase, pdf_bytes, file_name, bucket="presupuestos"
+                        )
+                        st.success("📤 PDF subido a Supabase Storage.")
+                        if url:
+                            st.markdown(f"🔗 [Abrir PDF en Storage]({url})")
+            except Exception as e:
+                st.error(f"❌ Error generando PDF: {e}")
 
 def render_presupuesto_lista(supabase):
     apply_orbe_theme()
 
-    st.header("💼 Gestión de presupuestos")
-    st.caption("Visualiza, edita y genera presupuestos con tarifas y validez.")
-
-    # Estado UI
-    st.session_state.setdefault("pres_page", 1)
-    st.session_state.setdefault("pres_view", "Tarjetas")
-    st.session_state.setdefault("show_presupuesto_modal", False)
-    st.session_state.setdefault("presupuesto_modal_id", None)
-    st.session_state.setdefault("show_creator", False)
+    # ---------------------------
+    # Estado UI (como cliente_lista)
+    # ---------------------------
+    defaults = {
+        "pres_page": 1,
+        "pres_view": "Tarjetas",
+        "show_presupuesto_modal": False,
+        "presupuesto_modal_id": None,
+        "show_creator": False,
+        "pres_q": "",
+        "pres_estado": "Todos",
+        "pres_cliente_filtro": "Todos",
+        "pres_orden": "Últimos creados",
+        "pres_result_count": 0,
+        "pres_last_fingerprint": None,
+    }
+    for k, v in defaults.items():
+        st.session_state.setdefault(k, v)
 
     page_size_cards, page_size_table = 12, 30
 
@@ -630,169 +667,182 @@ def render_presupuesto_lista(supabase):
     trabajadores = load_trabajadores(supabase)
     estados = _load_estados_presupuesto(supabase)
 
-    # ======================
-    # MODAL ARRIBA DEL TODO
-    # ======================
+    # ---------------------------
+    # MODO FICHA (si está abierto, no pintes listado debajo)
+    # ---------------------------
     if st.session_state.get("show_presupuesto_modal") and st.session_state.get("presupuesto_modal_id"):
         _render_presupuesto_modal(supabase, clientes, trabajadores, estados)
-        st.markdown("---")
-
-    # =======================
-    # Filtros / Vista (estilo productos)
-    # =======================
-    q = st.text_input(
-        "🔎 Buscar presupuesto",
-        placeholder="Número, referencia, cliente…",
-        key="pres_q",
-    )
-
-    with st.expander("🎛️ Filtros y vista avanzada", expanded=True):
-        c1, c2, c3 = st.columns([1.3, 1.3, 1.4])
-        with c1:
-            estado_sel = st.selectbox(
-                "Estado",
-                ["Todos"] + list(estados.keys()),
-                key="pres_estado",
-            )
-        with c2:
-            cliente_filtro = st.selectbox(
-                "Cliente",
-                ["Todos"] + list(clientes.keys()),
-                key="pres_cliente_filtro",
-            )
-        with c3:
-            orden_sel = st.selectbox(
-                "Ordenar por",
-                ["Últimos creados", "Fecha de presupuesto"],
-                index=0,
-                key="pres_orden",
-            )
-
-        c4, c5 = st.columns([1, 1])
-        with c4:
-            st.radio(
-                "Vista",
-                ["Tarjetas", "Tabla"],
-                horizontal=True,
-                key="pres_view",
-            )
-        with c5:
-            if st.button("➕ Nuevo presupuesto", use_container_width=True):
-                st.session_state["show_creator"] = True
-                st.session_state["presupuesto_modal_id"] = None
-                st.session_state["show_presupuesto_modal"] = False
-                st.rerun()
-
-    # Constructor inline
-    if st.session_state.get("show_creator"):
-        with st.container(border=True):
-            _render_nuevo_presupuesto_inline(supabase)
-        st.markdown("---")
-
-    # =======================
-    # Consulta paginada
-    # =======================
-    total, rows = 0, []
-    try:
-        # Count
-        base_count = supabase.table("presupuesto").select(
-            "presupuestoid", count="exact"
-        )
-        if q:
-            base_count = base_count.or_(
-                f"numero.ilike.%{q}%,referencia_cliente.ilike.%{q}%"
-            )
-        if estado_sel != "Todos":
-            base_count = base_count.eq(
-                "estado_presupuestoid", estados[estado_sel]
-            )
-        if cliente_filtro != "Todos":
-            base_count = base_count.eq(
-                "clienteid", clientes.get(cliente_filtro)
-            )
-        cres = base_count.execute()
-        total = getattr(cres, "count", None) or len(getattr(cres, "data", None) or [])
-
-        # Paginación
-        per_page = (
-            page_size_cards
-            if st.session_state.pres_view == "Tarjetas"
-            else page_size_table
-        )
-        start, end = _range(st.session_state.pres_page, per_page)
-
-        # Query base
-        base = supabase.table("presupuesto").select("*")
-        if q:
-            base = base.or_(
-                f"numero.ilike.%{q}%,referencia_cliente.ilike.%{q}%"
-            )
-        if estado_sel != "Todos":
-            base = base.eq("estado_presupuestoid", estados[estado_sel])
-        if cliente_filtro != "Todos":
-            base = base.eq("clienteid", clientes.get(cliente_filtro))
-
-        # Orden
-        if orden_sel == "Últimos creados":
-            try:
-                rows_res = (
-                    base.order("creado_en", desc=True)
-                    .range(start, end)
-                    .execute()
-                )
-                rows = getattr(rows_res, "data", None) or []
-            except Exception:
-                rows_res = (
-                    base.order("fecha_presupuesto", desc=True)
-                    .range(start, end)
-                    .execute()
-                )
-                rows = getattr(rows_res, "data", None) or []
-        else:
-            rows_res = (
-                base.order("fecha_presupuesto", desc=True)
-                .range(start, end)
-                .execute()
-            )
-            rows = getattr(rows_res, "data", None) or []
-
-    except Exception as e:
-        st.error(f"❌ Error cargando presupuestos: {e}")
-
-    # Paginación UI
-    per_page = (
-        page_size_cards
-        if st.session_state.pres_view == "Tarjetas"
-        else page_size_table
-    )
-    total_pages = max(1, math.ceil(total / per_page))
-    st.caption(
-        f"Mostrando página {st.session_state.pres_page} de {total_pages} — Total: {total} presupuestos"
-    )
-
-    p1, p2, p3, _ = st.columns([1, 1, 1, 5])
-    if p1.button("⏮️", disabled=st.session_state.pres_page <= 1):
-        st.session_state.pres_page = 1
-        st.rerun()
-    if p2.button("◀️", disabled=st.session_state.pres_page <= 1):
-        st.session_state.pres_page -= 1
-        st.rerun()
-    if p3.button("▶️", disabled=st.session_state.pres_page >= total_pages):
-        st.session_state.pres_page += 1
-        st.rerun()
-
-    st.markdown("---")
-
-    # Render
-    if not rows:
-        st.info("📭 No hay presupuestos que coincidan con los filtros.")
         return
 
-    view = st.session_state.pres_view
-    if view == "Tarjetas":
-        cols = st.columns(3)
-        for i, r in enumerate(rows):
-            with cols[i % 3]:
-                _render_card(r, supabase, clientes, trabajadores, estados)
-    else:
-        _render_table(rows)
+    # ---------------------------
+    # Página
+    # ---------------------------
+    with page(
+        "Gestión de presupuestos",
+        "Visualiza, filtra, edita y genera presupuestos con tarifas y validez.",
+        icon="💼",
+    ):
+        # =================================================
+        # 🔎 Buscador + KPI resultados
+        # =================================================
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            q = st.text_input(
+                "Buscar presupuesto",
+                placeholder="Número o referencia cliente…",
+                key="pres_q",
+            )
+        with c2:
+            st.metric("Resultados (página)", st.session_state.get("pres_result_count", 0))
+
+        # =================================================
+        # 🎛 Filtros
+        # =================================================
+        with st.expander("⚙️ Filtros avanzados", expanded=False):
+            f1, f2, f3 = st.columns(3)
+            with f1:
+                estado_sel = st.selectbox(
+                    "Estado",
+                    ["Todos"] + list(estados.keys()),
+                    key="pres_estado",
+                )
+            with f2:
+                cliente_filtro = st.selectbox(
+                    "Cliente",
+                    ["Todos"] + list(clientes.keys()),
+                    key="pres_cliente_filtro",
+                )
+            with f3:
+                orden_sel = st.selectbox(
+                    "Ordenar por",
+                    ["Últimos creados", "Fecha de presupuesto"],
+                    key="pres_orden",
+                )
+
+            f4, f5 = st.columns([1, 1])
+            with f4:
+                st.radio(
+                    "Vista",
+                    ["Tarjetas", "Tabla"],
+                    horizontal=True,
+                    key="pres_view",
+                )
+            with f5:
+                if st.button("➕ Nuevo presupuesto", use_container_width=True):
+                    st.session_state["show_creator"] = True
+                    st.rerun()
+
+        # ✅ Reset de página cuando cambien filtros/búsqueda (como cliente_lista)
+        fingerprint = (
+            (q or "").strip(),
+            estado_sel,
+            cliente_filtro,
+            orden_sel,
+            st.session_state.get("pres_view"),
+        )
+        if st.session_state.get("pres_last_fingerprint") != fingerprint:
+            st.session_state["pres_page"] = 1
+            st.session_state["pres_last_fingerprint"] = fingerprint
+
+        st.markdown("---")
+
+        # =================================================
+        # 🆕 Constructor inline
+        # =================================================
+        if st.session_state.get("show_creator"):
+            with section("Nuevo presupuesto", icon="🆕"):
+                _render_nuevo_presupuesto_inline(supabase)
+            st.markdown("")
+
+        # =================================================
+        # 📥 Consulta paginada
+        # =================================================
+        total, rows = 0, []
+        try:
+            # Count
+            base_count = supabase.table("presupuesto").select("presupuestoid", count="exact")
+
+            if q:
+                base_count = base_count.or_(f"numero.ilike.%{q}%,referencia_cliente.ilike.%{q}%")
+
+            if estado_sel != "Todos":
+                base_count = base_count.eq("estado_presupuestoid", estados[estado_sel])
+
+            if cliente_filtro != "Todos":
+                base_count = base_count.eq("clienteid", clientes.get(cliente_filtro))
+
+            cres = base_count.execute()
+            total = getattr(cres, "count", None) or 0
+
+            # Paginación
+            per_page = page_size_cards if st.session_state["pres_view"] == "Tarjetas" else page_size_table
+            start, end = _range(st.session_state["pres_page"], per_page)
+
+            # Query base
+            base = supabase.table("presupuesto").select("*")
+
+            if q:
+                base = base.or_(f"numero.ilike.%{q}%,referencia_cliente.ilike.%{q}%")
+
+            if estado_sel != "Todos":
+                base = base.eq("estado_presupuestoid", estados[estado_sel])
+
+            if cliente_filtro != "Todos":
+                base = base.eq("clienteid", clientes.get(cliente_filtro))
+
+            # Orden
+            if orden_sel == "Últimos creados":
+                try:
+                    rows_res = base.order("creado_en", desc=True).range(start, end).execute()
+                except Exception:
+                    rows_res = base.order("fecha_presupuesto", desc=True).range(start, end).execute()
+            else:
+                rows_res = base.order("fecha_presupuesto", desc=True).range(start, end).execute()
+
+            rows = getattr(rows_res, "data", None) or []
+            st.session_state["pres_result_count"] = len(rows)
+
+        except Exception as e:
+            st.error(f"❌ Error cargando presupuestos: {e}")
+            rows = []
+            total = 0
+
+        # =================================================
+        # Empty state
+        # =================================================
+        if not rows:
+            empty_state("No hay presupuestos que coincidan con los filtros.", icon="📭")
+            return
+
+        # =================================================
+        # 🔢 Paginación UI
+        # =================================================
+        per_page = page_size_cards if st.session_state["pres_view"] == "Tarjetas" else page_size_table
+        total_pages = max(1, math.ceil((total or 0) / per_page))
+
+        st.caption(f"Página {st.session_state['pres_page']} / {total_pages} · Total: {total}")
+
+        p1, p2, p3 = st.columns(3)
+        with p1:
+            if st.button("⬅️ Anterior", disabled=st.session_state["pres_page"] <= 1):
+                st.session_state["pres_page"] -= 1
+                st.rerun()
+        with p2:
+            st.write("")
+        with p3:
+            if st.button("Siguiente ➡️", disabled=st.session_state["pres_page"] >= total_pages):
+                st.session_state["pres_page"] += 1
+                st.rerun()
+
+        st.markdown("---")
+
+        # =================================================
+        # Render
+        # =================================================
+        if st.session_state["pres_view"] == "Tarjetas":
+            cols = st.columns(3)
+            for i, r in enumerate(rows):
+                with cols[i % 3]:
+                    _render_card(r, supabase, clientes, trabajadores, estados)
+        else:
+            _render_table(rows)

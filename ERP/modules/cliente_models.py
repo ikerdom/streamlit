@@ -5,15 +5,20 @@ from typing import Dict, Any, Optional, List
 # =========================
 # Helpers comunes
 # =========================
-def _as_options(rows: List[Dict[str, Any]], label="nombre", value="id") -> Dict[str, Any]:
+def _as_options(
+    rows: List[Dict[str, Any]],
+    label: str = "nombre",
+    value: str = "id",
+) -> Dict[str, Any]:
     """Convierte lista de dicts a {label: value} cuidando None."""
     if not rows:
         return {}
-    out = {}
+
+    out: Dict[str, Any] = {}
     for r in rows:
-        lbl = r.get(label) or "-"
+        lbl = str(r.get(label) or "").strip()
         val = r.get(value)
-        if val is not None:
+        if lbl and val is not None:
             out[lbl] = val
     return out
 
@@ -79,14 +84,18 @@ def load_trabajadores(_supabase) -> Dict[str, Any]:
             .order("nombre")
             .execute()
         )
-        # Etiqueta: "Nombre Apellidos"
+
         if not res.data:
             return {}
-        out = {}
+
+        out: Dict[str, Any] = {}
         for r in res.data:
-            lbl = f"{r.get('nombre','') or ''} {r.get('apellidos','') or ''}".strip() or "Trabajador"
+            nombre = str(r.get("nombre") or "").strip()
+            apellidos = str(r.get("apellidos") or "").strip()
+            lbl = f"{nombre} {apellidos}".strip() or "Trabajador"
             out[lbl] = r.get("trabajadorid")
         return out
+
     except Exception as e:
         st.warning(f"⚠️ No se pudieron cargar trabajadores: {e}")
         return {}

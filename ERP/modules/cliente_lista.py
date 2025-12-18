@@ -19,10 +19,9 @@ from modules.cliente_models import (
 )
 
 from modules.cliente_direccion_form import render_direccion_form
-from modules.cliente_facturacion_form import render_facturacion_form
+from modules.cliente_contacto_form import render_contacto_form
 from modules.cliente_observacion_form import render_observaciones_form
 from modules.cliente_crm_form import render_crm_form
-from modules.cliente_contacto_form import render_contacto_form
 
 
 # =========================================================
@@ -40,21 +39,23 @@ def _build_search_or(s: Optional[str], fields=("razon_social", "identificador"))
 
 
 def _normalize_id(v: Any):
-    """Normaliza IDs numéricos que puedan venir como float (1.0 -> 1)."""
-    if isinstance(v, float):
-        if v.is_integer():
-            return int(v)
-        return v
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
     return v
 
 
+# =========================================================
+# 📄 LISTADO DE CLIENTES
+# =========================================================
 def render_cliente_lista(supabase):
     apply_orbe_theme()
 
     st.header("🏢 Gestión de clientes")
     st.caption("Consulta, filtra y accede a la ficha completa de tus clientes.")
 
-    # Estado inicial seguro
+    # ---------------------------
+    # Estado inicial
+    # ---------------------------
     defaults = {
         "cli_page": 1,
         "cli_sort_field": "razon_social",
@@ -67,101 +68,86 @@ def render_cliente_lista(supabase):
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
 
-    # ===============================
-    # 📌 FICHA DE CLIENTE – SI HAY
-    # ===============================
+    # ---------------------------
+    # Ficha cliente
+    # ---------------------------
     if st.session_state.get("show_cliente_modal") and st.session_state.get("cliente_modal_id"):
-        try:
-            st.session_state.pop("_dialog_state", None)
-        except Exception:
-            pass
-
         render_cliente_modal(supabase)
-        st.markdown("## ")
+        st.markdown("---")
 
+    # ---------------------------
     # Catálogos
+    # ---------------------------
     estados = load_estados_cliente(supabase)
     grupos = load_grupos(supabase)
     trabajadores = load_trabajadores(supabase)
-    _ = load_formas_pago(supabase)
+    load_formas_pago(supabase)
 
-    # ===============================
+    # =================================================
     # 🔍 Buscador
-    # ===============================
+    # =================================================
     c1, c2 = st.columns([3, 1])
     with c1:
         q = st.text_input(
             "Buscar cliente",
-            placeholder="Escribe nombre o identificador…",
+            placeholder="Razón social o identificador…",
             key="cli_q",
         )
 
-        # ---------------------------------------------------------
-        # FIX: evitar que la pantalla se cierre al escribir
-        # ---------------------------------------------------------
         if "last_q" not in st.session_state:
             st.session_state["last_q"] = ""
 
         if q != st.session_state["last_q"]:
             st.session_state["cli_page"] = 1
             st.session_state["last_q"] = q
-        # ---------------------------------------------------------
 
     with c2:
-        st.metric("👥 Resultados (página)", st.session_state.get("cli_result_count", 0))
+        st.metric("Resultados", st.session_state.get("cli_result_count", 0))
 
     st.markdown("---")
 
-    # ===============================
-    # 🎛 Filtros + Orden
-    # ===============================
-    with st.expander("⚙️ Filtros de búsqueda avanzada", expanded=False):
-        c1, c2 = st.columns(2)
-        with c1:
+    # =================================================
+    # 🎛 Filtros
+    # =================================================
+    with st.expander("⚙️ Filtros avanzados", expanded=False):
+        f1, f2 = st.columns(2)
+        with f1:
             estado_sel = st.selectbox("Estado", ["Todos"] + list(estados.keys()), key="cli_estado")
-        with c2:
+        with f2:
             grupo_sel = st.selectbox("Grupo", ["Todos"] + list(grupos.keys()), key="cli_grupo")
 
-        c3, c4 = st.columns(2)
-        with c3:
+        f3, f4 = st.columns(2)
+        with f3:
             trab_sel = st.selectbox(
                 "Comercial asignado",
                 ["Todos"] + list(trabajadores.keys()),
                 key="cli_trab",
             )
-        with c4:
+        with f4:
             view = st.radio("Vista", ["Tarjetas", "Tabla"], horizontal=True, key="cli_view")
 
         st.markdown("### ↕️ Ordenar")
-
-        col_order1, col_order2 = st.columns(2)
-        with col_order1:
-            sort_field = st.selectbox(
+        o1, o2 = st.columns(2)
+        with o1:
+            st.session_state["cli_sort_field"] = st.selectbox(
                 "Campo",
                 ["razon_social", "identificador", "estadoid", "grupoid"],
-                index=["razon_social", "identificador", "estadoid", "grupoid"].index(
-                    st.session_state.get("cli_sort_field", "razon_social")
-                ),
             )
-            st.session_state["cli_sort_field"] = sort_field
-
-        with col_order2:
-            sort_dir = st.radio(
+        with o2:
+            st.session_state["cli_sort_dir"] = st.radio(
                 "Dirección",
                 ["ASC", "DESC"],
-                index=0 if st.session_state.get("cli_sort_dir", "ASC") == "ASC" else 1,
                 horizontal=True,
             )
-            st.session_state["cli_sort_dir"] = sort_dir
 
-    # ===============================
-    # 📥 Carga + filtros
-    # ===============================
+    # =================================================
+    # 📥 Carga de clientes
+    # =================================================
     try:
         base = (
             supabase.table("cliente")
             .select(
-                "clienteid, razon_social, identificador, estadoid, categoriaid, "
+                "clienteid, razon_social, identificador, estadoid, "
                 "grupoid, trabajadorid, formapagoid"
             )
             .eq("tipo_cliente", "cliente")
@@ -178,108 +164,115 @@ def render_cliente_lista(supabase):
             base = base.or_(or_filter)
             count_q = count_q.or_(or_filter)
 
-        if estado_sel != "Todos" and estado_sel in estados:
-            eid = estados[estado_sel]
-            base = base.eq("estadoid", eid)
-            count_q = count_q.eq("estadoid", eid)
+        if estado_sel != "Todos":
+            base = base.eq("estadoid", estados[estado_sel])
+            count_q = count_q.eq("estadoid", estados[estado_sel])
 
-        if grupo_sel != "Todos" and grupo_sel in grupos:
-            gid = grupos[grupo_sel]
-            base = base.eq("grupoid", gid)
-            count_q = count_q.eq("grupoid", gid)
+        if grupo_sel != "Todos":
+            base = base.eq("grupoid", grupos[grupo_sel])
+            count_q = count_q.eq("grupoid", grupos[grupo_sel])
 
-        if trab_sel != "Todos" and trab_sel in trabajadores:
-            tid = trabajadores[trab_sel]
-            base = base.eq("trabajadorid", tid)
-            count_q = count_q.eq("trabajadorid", tid)
+        if trab_sel != "Todos":
+            base = base.eq("trabajadorid", trabajadores[trab_sel])
+            count_q = count_q.eq("trabajadorid", trabajadores[trab_sel])
 
-        count_res = count_q.execute()
-        total_clientes = count_res.count or 0
+        total_clientes = count_q.execute().count or 0
 
         page_size = 30
         page = st.session_state["cli_page"]
         total_paginas = max(1, math.ceil(total_clientes / page_size))
-        if page > total_paginas:
-            page = total_paginas
-            st.session_state["cli_page"] = page
 
         start = (page - 1) * page_size
         end = start + page_size - 1
 
-        base = base.order(
-            st.session_state["cli_sort_field"],
-            desc=(st.session_state["cli_sort_dir"] == "DESC"),
+        clientes = (
+            base.order(
+                st.session_state["cli_sort_field"],
+                desc=st.session_state["cli_sort_dir"] == "DESC",
+            )
+            .range(start, end)
+            .execute()
+            .data
+            or []
         )
 
-        data = base.range(start, end).execute()
-        clientes = data.data or []
         st.session_state["cli_result_count"] = len(clientes)
 
     except Exception as e:
         st.error(f"❌ Error cargando clientes: {e}")
         return
 
-    st.markdown("---")
-
     if not clientes:
-        st.info("📭 No se encontraron clientes con esos filtros.")
+        st.info("📭 No se encontraron clientes.")
         return
 
-    # ===============================
-    # 🔄 Carga de presupuestos
-    # ===============================
-    ids_clientes = [c["clienteid"] for c in clientes]
+    # =================================================
+    # 🔄 Presupuesto más reciente
+    # =================================================
     presupuestos: Dict[int, Dict[str, Any]] = {}
-    if ids_clientes:
+    ids = [c["clienteid"] for c in clientes]
+
+    if ids:
         try:
-            pres_rows = (
+            rows = (
                 supabase.table("presupuesto")
                 .select("clienteid, estado_presupuestoid, fecha_presupuesto")
-                .in_("clienteid", ids_clientes)
+                .in_("clienteid", ids)
                 .order("fecha_presupuesto", desc=True)
                 .execute()
                 .data
                 or []
             )
-            for row in pres_rows:
-                cid = row["clienteid"]
-                if cid not in presupuestos:
-                    presupuestos[cid] = row
+            for r in rows:
+                if r["clienteid"] not in presupuestos:
+                    presupuestos[r["clienteid"]] = r
         except Exception:
-            presupuestos = {}
+            pass
 
-    # ===============================
-    # 👁️ Vista TABLA o TARJETAS
-    # ===============================
+    # =================================================
+    # 📊 TABLA / TARJETAS
+    # =================================================
     if view == "Tabla":
-        rows: List[Dict[str, Any]] = []
+        ALL_COLS = [
+            "ID cliente",
+            "Razón social",
+            "Identificador",
+            "Estado",
+            "Grupo",
+            "Comercial",
+            "Forma de pago",
+        ]
+
+        st.session_state.setdefault(
+            "cli_table_cols",
+            ["ID cliente", "Razón social", "Identificador", "Estado"],
+        )
+
+        cols_sel = st.multiselect(
+            "Columnas visibles",
+            options=ALL_COLS,
+            default=st.session_state["cli_table_cols"],
+            key="cli_table_cols",
+        )
+
+        rows = []
         for c in clientes:
-            estado_lbl = get_estado_label(c.get("estadoid"), supabase) or "-"
-            grupo_lbl = get_grupo_label(c.get("grupoid"), supabase) or "-"
-            if grupo_lbl == "-":
-                grupo_lbl = "Sin grupo"
-
-            trab_lbl = get_trabajador_label(c.get("trabajadorid"), supabase) or "-"
-            if trab_lbl == "-":
-                trab_lbl = "Sin comercial"
-
-            fid = _normalize_id(c.get("formapagoid"))
-            forma = get_formapago_label(fid, supabase) if fid else "-"
-
             rows.append(
                 {
-                    "ID": c.get("clienteid"),
-                    "Razón social": c.get("razon_social"),
-                    "Identificador": c.get("identificador"),
-                    "Estado": estado_lbl,
-                    "Grupo": grupo_lbl,
-                    "Comercial": trab_lbl,
-                    "Forma de pago": forma,
+                    "ID cliente": c["clienteid"],
+                    "Razón social": c["razon_social"],
+                    "Identificador": c["identificador"],
+                    "Estado": get_estado_label(c["estadoid"], supabase),
+                    "Grupo": get_grupo_label(c["grupoid"], supabase),
+                    "Comercial": get_trabajador_label(c["trabajadorid"], supabase),
+                    "Forma de pago": get_formapago_label(
+                        _normalize_id(c["formapagoid"]), supabase
+                    ),
                 }
             )
 
         df = pd.DataFrame(rows)
-        st.dataframe(df, use_container_width=True)
+        st.dataframe(df[cols_sel], use_container_width=True, hide_index=True)
 
     else:
         cols = st.columns(3)
@@ -288,27 +281,23 @@ def render_cliente_lista(supabase):
             with cols[i % 3]:
                 _render_card(c, supabase)
 
-    # ===============================
+    # =================================================
     # 🔢 Paginación
-    # ===============================
+    # =================================================
     st.markdown("---")
-    pag1, pag2, pag3 = st.columns(3)
-
-    with pag1:
+    p1, p2, p3 = st.columns(3)
+    with p1:
         if st.button("⬅️ Anterior", disabled=page <= 1):
             st.session_state["cli_page"] = page - 1
             st.rerun()
-
-    with pag2:
-        st.write(f"Página {page} / {total_paginas} · Total clientes: {total_clientes}")
-
-    with pag3:
+    with p2:
+        st.write(f"Página {page} / {total_paginas} · Total: {total_clientes}")
+    with p3:
         if st.button("Siguiente ➡️", disabled=page >= total_paginas):
             st.session_state["cli_page"] = page + 1
             st.rerun()
-
 # =========================================================
-# 🧾 Tarjeta de cliente
+# 🧾 Tarjeta de cliente (CARD)
 # =========================================================
 def _render_card(c: Dict[str, Any], supabase):
     apply_orbe_theme()
@@ -317,24 +306,21 @@ def _render_card(c: Dict[str, Any], supabase):
     ident = _safe(c.get("identificador"))
 
     estado = get_estado_label(c.get("estadoid"), supabase) or "-"
-    grupo = get_grupo_label(c.get("grupoid"), supabase) or "-"
-    if grupo == "-":
-        grupo = "Sin grupo"
+    grupo = get_grupo_label(c.get("grupoid"), supabase) or "Sin grupo"
+    trab = get_trabajador_label(c.get("trabajadorid"), supabase) or "Sin comercial"
 
-    trab = get_trabajador_label(c.get("trabajadorid"), supabase) or "-"
-    if trab == "-":
-        trab = "Sin comercial"
-
-    fid = _normalize_id(c.get("formapagoid"))
-    forma_pago = get_formapago_label(fid, supabase) if fid else "-"
+    forma_pago = get_formapago_label(
+        _normalize_id(c.get("formapagoid")), supabase
+    ) or "-"
 
     pres = c.get("presupuesto_info")
     pres_estado = "Sin presupuesto"
     pres_fecha = None
 
     if pres:
-        estado_map = {1: "Pendiente", 2: "Aceptado", 3: "Rechazado"}
-        pres_estado = estado_map.get(pres.get("estado_presupuestoid"), "Sin presupuesto")
+        pres_estado = {1: "Pendiente", 2: "Aceptado", 3: "Rechazado"}.get(
+            pres.get("estado_presupuestoid"), "Sin presupuesto"
+        )
         pres_fecha = pres.get("fecha_presupuesto")
 
     color_estado = {
@@ -351,51 +337,49 @@ def _render_card(c: Dict[str, Any], supabase):
     }.get(pres_estado, "#6b7280")
 
     fecha_html = (
-        f"<div style='color:#4b5563;font-size:0.8rem;'>🗓️ {pres_fecha}</div>"
+        f"<div style='font-size:0.8rem;color:#475569;'>🗓️ {pres_fecha}</div>"
         if pres_fecha
         else ""
     )
 
-    html = f"""
-    <div style="border:1px solid #e5e7eb;border-radius:12px;
-                background:#f9fafb;padding:14px;margin-bottom:14px;
-                box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+    st_html(
+        f"""
+        <div style="border:1px solid #e5e7eb;border-radius:12px;
+                    background:#f9fafb;padding:14px;margin-bottom:12px;
+                    box-shadow:0 1px 3px rgba(0,0,0,0.08);">
 
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-            <div>
-                <div style="font-size:1.05rem;font-weight:600;
-                            white-space:nowrap;overflow:hidden;
-                            text-overflow:ellipsis;max-width:230px;">
-                    🏢 {razon}
+            <div style="display:flex;justify-content:space-between;">
+                <div>
+                    <div style="font-size:1.05rem;font-weight:600;">
+                        🏢 {razon}
+                    </div>
+                    <div style="font-size:0.9rem;color:#6b7280;">
+                        {ident}
+                    </div>
                 </div>
-                <div style="color:#6b7280;font-size:0.9rem;
-                            white-space:nowrap;overflow:hidden;
-                            text-overflow:ellipsis;max-width:230px;">
-                    {ident}
+                <div style="color:{color_estado};font-weight:600;">
+                    {estado}
                 </div>
             </div>
-            <div style="color:{color_estado};font-weight:600;
-                        white-space:nowrap;margin-left:8px;">
-                {estado}
+
+            <div style="margin-top:8px;font-size:0.9rem;">
+                👥 <b>Grupo:</b> {grupo}<br>
+                🧑 <b>Comercial:</b> {trab}<br>
+                💳 <b>Forma pago:</b> {forma_pago}<br>
+                <span style="color:{color_pres};font-weight:600;">
+                    📦 {pres_estado}
+                </span>
+                {fecha_html}
             </div>
         </div>
+        """,
+        height=210,
+    )
 
-        <div style="margin-top:8px;font-size:0.9rem;line-height:1.45;">
-            👥 <b>Grupo:</b> {grupo}<br>
-            💳 <b>Forma de pago:</b> {forma_pago}<br>
-            🧑 <b>Comercial:</b> {trab}<br>
-            <span style="color:{color_pres};font-weight:600;">📦 {pres_estado}</span>
-            {fecha_html}
-        </div>
-    </div>
-    """
+    b1, b2, b3 = st.columns(3)
 
-    st_html(html, height=220)
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if st.button("📄 Ficha", key=f"ficha_cli_{c['clienteid']}", use_container_width=True):
+    with b1:
+        if st.button("📄 Ficha", key=f"cli_ficha_{c['clienteid']}", use_container_width=True):
             st.session_state.update(
                 {
                     "cliente_modal_id": c["clienteid"],
@@ -405,176 +389,87 @@ def _render_card(c: Dict[str, Any], supabase):
             )
             st.rerun()
 
-    with col2:
-        if st.button("📨 Presupuesto", key=f"pres_cli_{c['clienteid']}", use_container_width=True):
-            try:
-                supabase.table("presupuesto").insert(
-                    {
-                        "numero": f"PRES-{date.today().year}-{c['clienteid']}",
-                        "clienteid": c["clienteid"],
-                        "estado_presupuestoid": 1,
-                        "fecha_presupuesto": date.today().isoformat(),
-                        "editable": True,
-                    }
-                ).execute()
-                st.toast("📨 Presupuesto creado.", icon="📨")
-            except Exception as e:
-                st.error(f"❌ Error creando presupuesto: {e}")
+    with b2:
+        if st.button("📨 Presupuesto", key=f"cli_pres_{c['clienteid']}", use_container_width=True):
+            supabase.table("presupuesto").insert(
+                {
+                    "numero": f"PRES-{date.today().year}-{c['clienteid']}",
+                    "clienteid": c["clienteid"],
+                    "estado_presupuestoid": 1,
+                    "fecha_presupuesto": date.today().isoformat(),
+                    "editable": True,
+                }
+            ).execute()
+            st.toast("📨 Presupuesto creado", icon="📨")
 
-    with col3:
-        if st.button("🛑 Dar de baja", key=f"elim_cli_{c['clienteid']}", use_container_width=True):
-            st.session_state["cliente_modal_id"] = c["clienteid"]
-            st.session_state["confirm_delete"] = True
-            st.session_state["show_cliente_modal"] = True
+    with b3:
+        if st.button("🛑 Baja", key=f"cli_del_{c['clienteid']}", use_container_width=True):
+            st.session_state.update(
+                {
+                    "cliente_modal_id": c["clienteid"],
+                    "show_cliente_modal": True,
+                    "confirm_delete": True,
+                }
+            )
             st.rerun()
 
+
+# =========================================================
+# 📄 FICHA COMPLETA DEL CLIENTE
+# =========================================================
 def render_cliente_modal(supabase):
-    """
-    Ficha completa del cliente, integrada en la parte superior de la página,
-    con tabs para General, Direcciones, Contactos, Observaciones, CRM,
-    Presupuestos y Pedidos.
-    """
-    from modules.cliente_direccion_form import render_direccion_form
-    from modules.cliente_facturacion_form import render_facturacion_form
-    from modules.cliente_contacto_form import render_contacto_form
-    from modules.cliente_observacion_form import render_observaciones_form
-    from modules.cliente_crm_form import render_crm_form
-
-    if not st.session_state.get("show_cliente_modal"):
-        return
-
     clienteid = st.session_state.get("cliente_modal_id")
     if not clienteid:
         return
 
-    try:
-        cli = (
-            supabase.table("cliente")
-            .select("*")
-            .eq("clienteid", int(clienteid))
-            .single()
-            .execute()
-            .data
-        )
-    except Exception as e:
-        st.error(f"❌ Error cargando la ficha del cliente: {e}")
-        return
+    cli = (
+        supabase.table("cliente")
+        .select("*")
+        .eq("clienteid", int(clienteid))
+        .single()
+        .execute()
+        .data
+    )
+    # Estado paginación facturas
+    st.session_state.setdefault("fact_page", 1)
+    st.session_state.setdefault("fact_page_size", 15)
 
-    # ============================
-    # 🔎 Datos base del cliente
-    # ============================
-    razon = cli.get("razon_social") or "(Sin nombre)"
-    identificador = cli.get("identificador") or "-"
-    tipo_cliente = cli.get("tipo_cliente") or "-"
-    cuenta_comision = cli.get("cuenta_comision", 0)
-    estado_presupuesto_txt = cli.get("estado_presupuesto") or "pendiente"
-    perfil_completo = bool(cli.get("perfil_completo"))
+    razon = cli.get("razon_social", "(Sin nombre)")
+    identificador = cli.get("identificador", "-")
+    tipo_cliente = cli.get("tipo_cliente", "-")
 
     estado = get_estado_label(cli.get("estadoid"), supabase)
-    if not estado or estado == "-":
-        estado = "Desconocido"
+    grupo = get_grupo_label(cli.get("grupoid"), supabase)
+    comercial = get_trabajador_label(cli.get("trabajadorid"), supabase)
+    forma_pago = get_formapago_label(cli.get("formapagoid"), supabase)
 
-    grupo = get_grupo_label(cli.get("grupoid"), supabase) or "Sin grupo"
-    comercial = get_trabajador_label(cli.get("trabajadorid"), supabase) or "Sin comercial"
-    forma_pago = get_formapago_label(cli.get("formapagoid"), supabase) or "-"
-
-    # ============================
-    # 📊 KPIs rápidos
-    # ============================
-    presupuestos_activos = None
-    pedidos_activos = None
-
-    try:
-        pres_act = (
-            supabase.table("presupuesto")
-            .select("presupuestoid", count="exact")
-            .eq("clienteid", int(clienteid))
-            .eq("estado_presupuestoid", 1)  # 1 = Pendiente / activo
-            .execute()
-        )
-        presupuestos_activos = pres_act.count or 0
-    except Exception:
-        presupuestos_activos = None
-
-    try:
-        ped_act = (
-            supabase.table("pedido")
-            .select("pedidoid", count="exact")
-            .eq("clienteid", int(clienteid))
-            .execute()
-        )
-        pedidos_activos = ped_act.count or 0
-    except Exception:
-        pedidos_activos = None
-
-    # ============================
-    # 🧱 CUADRO PRINCIPAL
-    # ============================
-    st.markdown("## ")  # pequeño espacio visual
-
-    # Botón Cerrar ficha
-    col_close, col_title = st.columns([1, 4])
-    with col_close:
-        if st.button("⬅️ Cerrar ficha", key="close_cliente_modal", use_container_width=True):
+    # ---------------------------
+    # Cabecera
+    # ---------------------------
+    c1, c2 = st.columns([1, 5])
+    with c1:
+        if st.button("⬅️ Volver", use_container_width=True):
             st.session_state["show_cliente_modal"] = False
             st.session_state["cliente_modal_id"] = None
-            st.session_state["confirm_delete"] = False
             st.rerun()
 
-    with col_title:
-        st.markdown(
+    with c2:
+        st_html(
             f"""
-            <div style='padding:14px;border-radius:12px;
-                        background:#f9fafb;border:1px solid #e5e7eb;'>
-                <h3 style='margin:0;'>🏢 {razon}</h3>
-                <p style='margin:4px 0 0 0;color:#4b5563;font-size:0.9rem;'>
-                    <b>ID interno:</b> {clienteid} · 
-                    <b>Identificador:</b> {identificador} · 
-                    <b>Tipo:</b> {tipo_cliente}
+            <div style="padding:14px;border-radius:12px;
+                        background:#f9fafb;border:1px solid #e5e7eb;">
+                <h3>🏢 {razon}</h3>
+                <p style="color:#475569;font-size:0.9rem;">
+                    ID: {clienteid} · {identificador} · {tipo_cliente}
                 </p>
             </div>
             """,
-            unsafe_allow_html=True,
+            height=120,
         )
 
-    # Fila de resumen
-    st.markdown(
-        f"""
-        <div style='margin-top:8px;margin-bottom:8px;
-                    padding:12px 14px;border-radius:12px;
-                    background:#ffffff;border:1px solid #e5e7eb;'>
-            <div style='display:flex;flex-wrap:wrap;gap:18px;font-size:0.9rem;color:#374151;'>
-                <div><b>Estado:</b> {estado}</div>
-                <div><b>Grupo:</b> {grupo}</div>
-                <div><b>Comercial:</b> {comercial}</div>
-                <div><b>Forma de pago:</b> {forma_pago}</div>
-                <div><b>Cuenta comisión:</b> {cuenta_comision}</div>
-                <div><b>Estado presupuesto:</b> {estado_presupuesto_txt}</div>
-                <div><b>Perfil completo:</b> {"✅ Sí" if perfil_completo else "⚪ Pendiente"}</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # KPIs: Presupuestos activos / Pedidos activos
-    k1, k2 = st.columns(2)
-    with k1:
-        if presupuestos_activos is not None:
-            st.metric("📨 Presupuestos activos", presupuestos_activos)
-        else:
-            st.metric("📨 Presupuestos activos", "N/D")
-    with k2:
-        if pedidos_activos is not None:
-            st.metric("📦 Pedidos activos", pedidos_activos)
-        else:
-            st.metric("📦 Pedidos activos", "N/D")
-
-    st.markdown("---")
-
-    # ======================================================
-    # 🧷 TABS PRINCIPALES
-    # ======================================================
+    # ---------------------------
+    # Tabs
+    # ---------------------------
     (
         tab_general,
         tab_dir,
@@ -583,6 +478,7 @@ def render_cliente_modal(supabase):
         tab_crm,
         tab_pres,
         tab_ped,
+        tab_fac,
     ) = st.tabs([
         "📌 General",
         "🏠 Direcciones",
@@ -591,183 +487,204 @@ def render_cliente_modal(supabase):
         "💬 CRM",
         "🧾 Presupuestos",
         "📦 Pedidos",
+        "🧾 Facturas",
     ])
 
-    # ============================
-    # 📌 TAB · GENERAL
-    # ============================
+
+    # ---------------------------
+    # GENERAL
+    # ---------------------------
     with tab_general:
-        st.markdown("### 📌 Resumen general del cliente")
+        st.write(f"**Estado:** {estado}")
+        st.write(f"**Grupo:** {grupo}")
+        st.write(f"**Comercial:** {comercial}")
+        st.write(f"**Forma de pago:** {forma_pago}")
 
-        col_g1, col_g2 = st.columns(2)
-        with col_g1:
-            st.markdown("#### 🧾 Identificación")
-            st.write(f"**Razón social:** {razon}")
-            st.write(f"**Identificador:** {identificador}")
-            st.write(f"**Tipo de cliente:** {tipo_cliente}")
-            st.write(f"**Estado:** {estado}")
-            st.write(f"**Grupo:** {grupo}")
-
-        with col_g2:
-            st.markdown("#### 👥 Comercial & condiciones")
-            st.write(f"**Comercial asignado:** {comercial}")
-            st.write(f"**Forma de pago:** {forma_pago}")
-            st.write(f"**Cuenta comisión:** {cuenta_comision}")
-            st.write(f"**Estado presupuesto:** {estado_presupuesto_txt}")
-            st.write(f"**Perfil completo:** {'✅ Sí' if perfil_completo else '⚪ Pendiente'}")
-
-        # Observaciones breves (campo observaciones en tabla cliente, si existe)
-        obs_breve = cli.get("observaciones")
-        st.markdown("---")
-        st.markdown("#### 📝 Observaciones breves")
-        if obs_breve:
-            st.info(obs_breve)
-        else:
-            st.caption("No hay observaciones breves guardadas en la ficha base del cliente.")
-
-        st.markdown("---")
-        st.markdown("#### ⚙️ Acciones rápidas")
-
-        ac1, ac2, ac3 = st.columns(3)
-        with ac1:
-            if st.button("📨 Crear presupuesto", key=f"btn_pres_desde_general_{clienteid}", use_container_width=True):
-                try:
-                    supabase.table("presupuesto").insert({
-                        "numero": f"PRES-{date.today().year}-{clienteid}",
-                        "clienteid": int(clienteid),
-                        "trabajadorid": st.session_state.get("trabajadorid", None),
-                        "estado_presupuestoid": 1,
-                        "fecha_presupuesto": date.today().isoformat(),
-                        "observaciones": "Presupuesto creado desde ficha general del cliente.",
-                        "editable": True,
-                        "facturar_individual": False,
-                    }).execute()
-                    st.toast("📨 Presupuesto creado correctamente.", icon="📨")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error creando presupuesto: {e}")
-
-        with ac2:
-            st.button("📦 (Futuro) Crear pedido", disabled=True, use_container_width=True)
-
-        with ac3:
-            if st.button("🛑 Dar de baja cliente", key=f"btn_baja_{clienteid}", use_container_width=True):
-                try:
-                    supabase.table("cliente").delete().eq("clienteid", int(clienteid)).execute()
-                    st.toast("🗑 Cliente dado de baja correctamente.", icon="🗑")
-                    st.session_state["show_cliente_modal"] = False
-                    st.session_state["cliente_modal_id"] = None
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ No se pudo dar de baja el cliente: {e}")
-
-    # ============================
-    # 🏠 TAB · DIRECCIONES
-    # ============================
+    # ---------------------------
+    # DIRECCIONES
+    # ---------------------------
     with tab_dir:
-        render_direccion_form(supabase, int(clienteid), modo="cliente")
+        render_direccion_form(supabase, clienteid, modo="cliente")
 
-    # ============================
-    # 👥 TAB · CONTACTOS
-    # ============================
+    # ---------------------------
+    # CONTACTOS
+    # ---------------------------
     with tab_contactos:
-        render_contacto_form(supabase, int(clienteid))
+        render_contacto_form(supabase, clienteid)
 
-    # ============================
-    # 🗒️ TAB · OBSERVACIONES
-    # ============================
+    # ---------------------------
+    # OBSERVACIONES
+    # ---------------------------
     with tab_obs:
-        render_observaciones_form(supabase, int(clienteid))
+        render_observaciones_form(supabase, clienteid)
 
-    # ============================
-    # 💬 TAB · CRM
-    # ============================
+    # ---------------------------
+    # CRM
+    # ---------------------------
     with tab_crm:
-        render_crm_form(supabase, int(clienteid))
+        render_crm_form(supabase, clienteid)
 
-    # ============================
-    # 🧾 TAB · PRESUPUESTOS
-    # ============================
+    # ---------------------------
+    # PRESUPUESTOS
+    # ---------------------------
     with tab_pres:
-        st.markdown("### 🧾 Presupuestos del cliente")
-
-        try:
-            presupuestos = (
-                supabase.table("presupuesto")
-                .select("presupuestoid, numero, fecha_presupuesto, total_estimada, estado_presupuestoid")
-                .eq("clienteid", int(clienteid))
-                .order("fecha_presupuesto", desc=True)
-                .execute()
-                .data
-                or []
-            )
-        except Exception as e:
-            st.error(f"❌ Error cargando presupuestos: {e}")
-            presupuestos = []
+        presupuestos = (
+            supabase.table("presupuesto")
+            .select("*")
+            .eq("clienteid", clienteid)
+            .order("fecha_presupuesto", desc=True)
+            .execute()
+            .data
+            or []
+        )
 
         if not presupuestos:
-            st.info("📭 Este cliente no tiene presupuestos registrados aún.")
+            st.info("📭 No hay presupuestos")
         else:
-            estado_map = {1: "Pendiente", 2: "Aceptado", 3: "Rechazado"}
-            color_map = {
-                "Pendiente": "#f59e0b",
-                "Aceptado": "#16a34a",
-                "Rechazado": "#dc2626",
-            }
-
             for p in presupuestos:
-                est = estado_map.get(p.get("estado_presupuestoid"), "Desconocido")
-                color = color_map.get(est, "#6b7280")
-
-                st.markdown(
+                st_html(
                     f"""
-                    <div style='border:1px solid #e5e7eb;border-left:5px solid {color};
-                                background:#f9fafb;padding:10px 12px;margin:6px 0;border-radius:8px;'>
-                        <b>{p.get('numero','(Sin número)')}</b> — 🗓️ {p.get('fecha_presupuesto','-')}<br>
-                        💰 <b>{p.get('total_estimada','-')} €</b><br>
-                        <span style='color:{color};font-weight:600;'>{est}</span>
+                    <div style="border-left:5px solid #16a34a;
+                                background:#f9fafb;padding:10px;margin:6px 0;">
+                        <b>{p.get("numero")}</b> — {p.get("fecha_presupuesto")}  
+                        💰 {p.get("total_estimada","-")} €
                     </div>
                     """,
-                    unsafe_allow_html=True,
+                    height=90,
                 )
 
     # ============================
-    # 📦 TAB · PEDIDOS
+    # 🧾 TAB · FACTURAS (PAGINADAS)
     # ============================
-    with tab_ped:
-        st.markdown("### 📦 Pedidos del cliente")
+    with tab_fac:
+        page_size = st.session_state["fact_page_size"]
+        page = st.session_state["fact_page"]
 
         try:
-            pedidos = (
-                supabase.table("pedido")
-                .select("*")
+            # 🔢 Total facturas (para paginación)
+            count_res = (
+                supabase.table("factura")
+                .select("facturaid", count="exact")
                 .eq("clienteid", int(clienteid))
-                .order("fecha_pedido", desc=True)
+                .execute()
+            )
+            total_facturas = count_res.count or 0
+
+            total_pages = max(1, math.ceil(total_facturas / page_size))
+            if page > total_pages:
+                page = total_pages
+                st.session_state["fact_page"] = page
+
+            start = (page - 1) * page_size
+            end = start + page_size - 1
+
+            # 📥 Carga paginada
+            facturas = (
+                supabase.table("factura")
+                .select(
+                    "facturaid, factura_serie, factura_numero, "
+                    "fecha_emision, fecha_vencimiento, "
+                    "factura_estado, forma_pago, "
+                    "base_imponible, impuestos, total_calculado"
+                )
+                .eq("clienteid", int(clienteid))
+                .order("fecha_emision", desc=True)
+                .range(start, end)
                 .execute()
                 .data
                 or []
             )
+
         except Exception as e:
-            st.error(f"❌ Error cargando pedidos: {e}")
-            pedidos = []
+            st.error(f"❌ Error cargando facturas: {e}")
+            facturas = []
+            total_facturas = 0
+            total_pages = 1
 
-        if not pedidos:
-            st.info("📭 Este cliente todavía no tiene pedidos registrados.")
+        if not facturas:
+            st.info("📭 Este cliente no tiene facturas registradas.")
         else:
-            for ped in pedidos:
-                numero = ped.get("numero") or f"PED-{ped.get('pedidoid','?')}"
-                fecha = ped.get("fecha_pedido", "-")
-                estado_pedidoid = ped.get("estado_pedidoid", "-")
-                total = ped.get("total_bruto") or ped.get("total_neto") or ped.get("total") or "-"
+            for f in facturas:
+                estado = f.get("factura_estado", "-")
+                color_estado = {
+                    "Exportada": "#16a34a",
+                    "Borrador": "#f59e0b",
+                    "Anulada": "#dc2626",
+                }.get(estado, "#6b7280")
 
-                st.markdown(
+                numero = f"{f.get('factura_serie','')}-{f.get('factura_numero','')}"
+
+                st_html(
                     f"""
-                    <div style='border:1px solid #e5e7eb;border-left:5px solid #3b82f6;
-                                background:#f9fafb;padding:10px 12px;margin:6px 0;border-radius:8px;'>
-                        <b>{numero}</b> — 🗓️ {fecha}<br>
-                        💰 <b>{total} €</b><br>
-                        <span style='color:#3b82f6;font-weight:600;'>Estado pedido ID: {estado_pedidoid}</span>
+                    <div style="
+                        border:1px solid #e5e7eb;
+                        border-left:5px solid {color_estado};
+                        background:#f9fafb;
+                        padding:12px;
+                        margin:8px 0;
+                        border-radius:8px;
+                    ">
+                        <b>🧾 {numero}</b><br>
+                        🗓️ <b>Emisión:</b> {f.get('fecha_emision','-')}<br>
+                        ⏳ <b>Vencimiento:</b> {f.get('fecha_vencimiento','-')}<br>
+                        💳 <b>Forma de pago:</b> {f.get('forma_pago','-')}<br>
+                        💰 <b>Base:</b> {f.get('base_imponible','-')} €<br>
+                        🧮 <b>Impuestos:</b> {f.get('impuestos','-')} €<br>
+                        <span style="font-weight:700;">
+                            💶 Total: {f.get('total_calculado','-')} €
+                        </span><br>
+                        <span style="color:{color_estado};font-weight:600;">
+                            Estado: {estado}
+                        </span>
                     </div>
                     """,
-                    unsafe_allow_html=True,
+                    height=190,
+                )
+
+        # 🔢 Controles de paginación
+        st.markdown("---")
+        p1, p2, p3 = st.columns(3)
+
+        with p1:
+            if st.button("⬅️ Anterior", disabled=page <= 1, key="fact_prev"):
+                st.session_state["fact_page"] = page - 1
+                st.rerun()
+
+        with p2:
+            st.write(f"Página {page} / {total_pages} · Total facturas: {total_facturas}")
+
+        with p3:
+            if st.button("Siguiente ➡️", disabled=page >= total_pages, key="fact_next"):
+                st.session_state["fact_page"] = page + 1
+                st.rerun()
+
+
+    # ---------------------------
+    # PEDIDOS
+    # ---------------------------
+    with tab_ped:
+        pedidos = (
+            supabase.table("pedido")
+            .select("*")
+            .eq("clienteid", clienteid)
+            .order("fecha_pedido", desc=True)
+            .execute()
+            .data
+            or []
+        )
+
+        if not pedidos:
+            st.info("📭 No hay pedidos")
+        else:
+            for p in pedidos:
+                st_html(
+                    f"""
+                    <div style="border-left:5px solid #3b82f6;
+                                background:#f9fafb;padding:10px;margin:6px 0;">
+                        <b>{p.get("numero","PED-"+str(p.get("pedidoid")))}</b>  
+                        🗓️ {p.get("fecha_pedido","-")}  
+                        💰 {p.get("total","-")} €
+                    </div>
+                    """,
+                    height=90,
                 )

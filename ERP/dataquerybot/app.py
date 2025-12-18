@@ -1,8 +1,38 @@
+import os
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import base64
 from pandas.api.types import is_integer_dtype
+
+from dotenv import load_dotenv
+load_dotenv()      # ← IMPORTANTE: se carga al inicio
+print("🔧 .env cargado en DataQueryBot")
+
+# ============================================================
+# 🔐 VALIDACIÓN DE VARIABLES CRÍTICAS DEL ERP
+# ============================================================
+
+OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+SUPA_URL = os.getenv("SUPABASE_URL")
+
+print("🔍 KEY RECIBIDA =", OPENAI_KEY[:10] + "..." if OPENAI_KEY else "❌ NO RECIBIDA")
+print("🔍 SUPABASE_URL RECIBIDA =", SUPA_URL)
+
+if not OPENAI_KEY:
+    st.error("❌ Falta OPENAI_API_KEY — El ERP no la pasó")
+    st.stop()
+
+if not SUPA_URL:
+    st.error("❌ Falta SUPABASE_URL — El ERP no la pasó")
+    st.stop()
+
+# 🔥 Forzar al módulo ai_assistant a usar esta API KEY
+os.environ["OPENAI_API_KEY"] = OPENAI_KEY
+
+# ============================================================
+# IMPORTS DEPENDIENTES DE LAS VARIABLES YA CONFIGURADAS
+# ============================================================
 
 from database import DatabaseManager
 from ai_assistant import (
@@ -11,6 +41,21 @@ from ai_assistant import (
     generate_analysis_response,
     repair_sql_query,
 )
+
+
+# ============================================
+# 🔑 LOGIN AUTOMÁTICO DESDE EL ERP (token)
+# ============================================
+
+query_params = st.query_params
+token = query_params.get("token", None)
+user = query_params.get("user", None)
+
+if token:
+    st.session_state["authenticated"] = True
+    st.session_state["erp_user"] = user
+else:
+    st.session_state["authenticated"] = False
 
 # ---------- helper para logos en base64 ----------
 
@@ -567,6 +612,13 @@ def main():
         page_title="Kika - Pregunta a tu base de datos",
         layout="wide",
     )
+    # ============================================
+    # REQUIERE TOKEN → SI NO, BLOQUEA ACCESO
+    # ============================================
+    if not st.session_state.get("authenticated"):
+        st.error("Acceso no autorizado. Debes entrar desde el ERP.")
+        st.stop()
+
 
     # Cargamos logos en base64
     orbe_b64 = load_image_base64("logo_orbe.png")

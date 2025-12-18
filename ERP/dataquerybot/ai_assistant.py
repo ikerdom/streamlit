@@ -15,8 +15,21 @@ from datetime import timedelta
 # ============================================================
 # Cliente OpenAI (usa la API key del entorno)
 # ============================================================
+# ============================================================
+# 🔥 FORZAMOS USO EXCLUSIVO DE LA API KEY DEL ERP
+# ============================================================
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
+
+# Mostrar solo los primeros caracteres para debug seguro
+print("🔍 OPENAI KEY QUE DATAQUERYBOT VA A USAR ->", API_KEY[:12] + "***")
+
+if not API_KEY:
+    raise RuntimeError("❌ ERROR CRÍTICO: DataQueryBot NO ha recibido OPENAI_API_KEY del ERP.")
+
+# Crear cliente con ESA clave, ignorando cualquier otra del sistema
+client = OpenAI(api_key=API_KEY)
+
 
 SQL_MODEL = os.getenv("OPENAI_SQL_MODEL", "gpt-4o")
 SUMMARY_MODEL = os.getenv("OPENAI_SUMMARY_MODEL", "gpt-4o")

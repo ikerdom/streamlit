@@ -8,6 +8,7 @@ import streamlit as st
 from streamlit.components.v1 import html as st_html
 
 from modules.orbe_theme import apply_orbe_theme
+
 from modules.cliente_models import (
     load_estados_cliente,
     load_categorias,
@@ -27,9 +28,13 @@ from modules.cliente_observacion_form import render_observaciones_form
 from modules.cliente_crm_form import render_crm_form
 from modules.cliente_contacto_form import render_contacto_form
 
+# ✅ NUEVO: alta de potenciales reutilizando tu form (adaptado ya a tipo_cliente="potencial")
+# ⚠️ Cambia este import si tu fichero se llama distinto:
+from modules.cliente_form import render_cliente_form
+
 
 # =========================================================
-# 🔧 Utils
+# 🔧 UTILS
 # =========================================================
 def _safe(v, d: str = "-"):
     return v if v not in (None, "", "null") else d
@@ -43,27 +48,153 @@ def _build_search_or(s: Optional[str], fields=("razon_social", "identificador"))
 
 
 def _normalize_id(v: Any):
-    """Normaliza IDs numéricos que puedan venir como float (1.0 -> 1)."""
-    if isinstance(v, float):
-        if v.is_integer():
-            return int(v)
-        return v
+    if isinstance(v, float) and v.is_integer():
+        return int(v)
     return v
 
 
+def _short(s: str, n: int = 48) -> str:
+    s = (s or "").strip()
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def _bool(v: Any) -> bool:
+    # PostgREST a veces devuelve "true"/"false" como string
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, str):
+        return v.strip().lower() in ("true", "1", "t", "yes", "y")
+    return bool(v)
+
+
 # =========================================================
-# 🌱 Vista principal de clientes potenciales
+# 📦 PREFETCH DATOS (OPTIMIZACIÓN)
+# =========================================================
+def _prefetch_presupuestos(supabase, ids_clientes: List[int]) -> Dict[int, Dict[str, Any]]:
+    """
+    Devuelve por clienteid el ÚLTIMO presupuesto (por fecha_presupuesto desc).
+    """
+    if not ids_clientes:
+        return {}
+
+    try:
+        rows = (
+            supabase.table("presupuesto")
+            .select("clienteid, estado_presupuestoid, fecha_presupuesto, numero, total_estimada")
+            .in_("clienteid", ids_clientes)
+            .order("fecha_presupuesto", desc=True)
+            .execute()
+            .data
+            or []
+        )
+
+        out: Dict[int, Dict[str, Any]] = {}
+        for r in rows:
+            cid = r.get("clienteid")
+            if cid and cid not in out:
+                out[int(cid)] = r
+        return out
+    except Exception:
+        return {}
+
+
+def _prefetch_ultimo_crm(supabase, ids_clientes: List[int]) -> Dict[int, Dict[str, Any]]:
+    """
+    Devuelve por clienteid la acción CRM “más reciente/relevante”.
+    Priorizamos: fecha_vencimiento desc.
+    """
+    if not ids_clientes:
+        return {}
+
+    try:
+        rows = (
+            supabase.table("crm_actuacion")
+            .select("clienteid, titulo, estado, fecha_vencimiento, prioridad")
+            .in_("clienteid", ids_clientes)
+            .order("fecha_vencimiento", desc=True)
+            .execute()
+            .data
+            or []
+        )
+
+        out: Dict[int, Dict[str, Any]] = {}
+        for r in rows:
+            cid = r.get("clienteid")
+            if cid and int(cid) not in out:
+                out[int(cid)] = r
+        return out
+    except Exception:
+        return {}
+
+
+# =========================================================
+# 🧠 PERFIL: cálculo de “faltan datos”
+# =========================================================
+def _calcular_faltantes_perfil(supabase, cliente_row: Dict[str, Any]) -> List[str]:
+    """
+    Regla de negocio que ya estabas usando:
+    - Dirección fiscal con CP
+    - Forma de pago
+    - Comercial/trabajador asignado
+    """
+    clienteid = cliente_row.get("clienteid")
+    if not clienteid:
+        return ["Cliente sin ID"]
+
+    faltan: List[str] = []
+
+    # Dirección fiscal con CP
+    try:
+        dir_fiscal = (
+            supabase.table("cliente_direccion")
+            .select("cp")
+            .eq("clienteid", int(clienteid))
+            .eq("tipo", "fiscal")
+            .limit(1)
+            .execute()
+            .data
+        )
+        if not dir_fiscal or not dir_fiscal[0].get("cp"):
+            faltan.append("Dirección fiscal con CP")
+    except Exception:
+        faltan.append("Dirección fiscal con CP")
+
+    # Forma de pago
+    if not cliente_row.get("formapagoid"):
+        faltan.append("Forma de pago")
+
+    # Comercial/trabajador asignado
+    if not cliente_row.get("trabajadorid"):
+        faltan.append("Comercial asignado")
+
+    return faltan
+
+
+def _persistir_perfil_completo(supabase, clienteid: int, perfil_ok: bool):
+    """
+    Guarda el flag perfil_completo en BBDD.
+    """
+    try:
+        supabase.table("cliente").update({"perfil_completo": bool(perfil_ok)}).eq("clienteid", int(clienteid)).execute()
+    except Exception:
+        pass
+
+
+# =========================================================
+# 🌱 LISTA PRINCIPAL DE CLIENTES POTENCIALES
 # =========================================================
 def render_cliente_potencial_lista(supabase):
     apply_orbe_theme()
 
-    st.header("🌱 Gestión de clientes potenciales")
+    st.header("🌱 Clientes potenciales")
     st.caption(
-        "Visualiza y gestiona tus clientes potenciales, completa su perfil y "
-        "conviértelos en clientes activos cuando estén listos."
+        "Contactos comerciales en fase previa. "
+        "Trabajan con presupuestos y CRM hasta completar su perfil."
     )
 
-    # Estado inicial
+    # ---------------------------
+    # Session state defaults
+    # ---------------------------
     defaults = {
         "pot_page": 1,
         "pot_sort_field": "razon_social",
@@ -71,100 +202,110 @@ def render_cliente_potencial_lista(supabase):
         "show_potencial_modal": False,
         "cliente_potencial_id": None,
         "pot_confirm_delete": False,
+
+        # ✅ NUEVO: UI alta potencial
+        "show_create_potencial": False,
     }
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
 
-    trabajadorid = st.session_state.get("trabajadorid", None)
+    trabajador_actual = st.session_state.get("trabajadorid")
 
-    # ===============================
-    # 📌 FICHA POTENCIAL ARRIBA (SI HAY)
-    # ===============================
+    # =====================================================
+    # ✅ NUEVO BLOQUE: CREAR CLIENTE POTENCIAL DESDE AQUÍ
+    # =====================================================
+    with st.expander("➕ Crear cliente potencial", expanded=False):
+        st.caption("Usa el alta completa, pero se guardará como tipo_cliente='potencial'.")
+        # Nota: tu render_cliente_form debe aceptar supabase y modo="potencial"
+        # (como ya acordamos y como tú lo adaptaste)
+        render_cliente_form(supabase, modo="potencial")
+
+    # =====================================================
+    # ✅ NUEVO HOOK POST-CREACIÓN
+    # Si el form guarda el clienteid en st.session_state["cliente_actual"],
+    # abrimos automáticamente la ficha del potencial recién creado.
+    # =====================================================
+    if st.session_state.get("cliente_actual"):
+        nuevo_id = st.session_state.get("cliente_actual")
+        st.session_state["cliente_potencial_id"] = int(nuevo_id)
+        st.session_state["show_potencial_modal"] = True
+        st.session_state["pot_confirm_delete"] = False
+        st.session_state["cliente_actual"] = None
+        st.toast("✅ Potencial creado. Abriendo ficha…", icon="✅")
+        st.rerun()
+
+    st.markdown("---")
+
+    # ---------------------------
+    # Ficha superior (si aplica)
+    # ---------------------------
     if st.session_state.get("show_potencial_modal") and st.session_state.get("cliente_potencial_id"):
-        try:
-            st.session_state.pop("_dialog_state", None)
-        except Exception:
-            pass
         _render_potencial_ficha(supabase)
-        st.markdown("## ")  # separación visual
+        st.markdown("---")
 
+    # ---------------------------
     # Catálogos
+    # ---------------------------
     estados = load_estados_cliente(supabase)
     categorias = load_categorias(supabase)
     grupos = load_grupos(supabase)
     trabajadores = load_trabajadores(supabase)
-    _ = load_formas_pago(supabase)
+    formas_pago = load_formas_pago(supabase)
 
-    # ===============================
-    # 🔍 Buscador
-    # ===============================
+    # ---------------------------
+    # Buscador
+    # ---------------------------
     c1, c2 = st.columns([3, 1])
     with c1:
-        q = st.text_input(
-            "Buscar potencial",
-            placeholder="Razón social o identificador…",
-            key="pot_q",
-        )
-
-        # reset de página si cambia el texto de búsqueda
-        if "last_pot_q" not in st.session_state:
-            st.session_state["last_pot_q"] = ""
-        if q != st.session_state["last_pot_q"]:
+        q = st.text_input("Buscar", placeholder="Razón social o identificador", key="pot_q")
+        if q != st.session_state.get("last_pot_q"):
             st.session_state["pot_page"] = 1
             st.session_state["last_pot_q"] = q
 
     with c2:
-        st.metric("🔎 Resultados (página)", st.session_state.get("pot_result_count", 0))
+        st.metric("Resultados", st.session_state.get("pot_result_count", 0))
 
     st.markdown("---")
 
-    # ===============================
-    # 🎛 Filtros avanzados
-    # ===============================
+    # ---------------------------
+    # Filtros avanzados
+    # ---------------------------
     with st.expander("⚙️ Filtros avanzados", expanded=False):
-        c1, c2, c3, c4 = st.columns(4)
-        with c1:
-            perfil_sel = st.selectbox(
-                "Perfil",
-                ["Todos", "Completos", "Incompletos"],
-                key="pot_perfil",
-            )
-        with c2:
-            ver_todos = st.toggle("👀 Ver todos (no solo mis potenciales)", value=False)
-        with c3:
-            estado_sel = st.selectbox("Estado", ["Todos"] + list(estados.keys()), key="pot_estado")
-        with c4:
-            trab_sel = st.selectbox(
-                "Trabajador",
-                ["Todos"] + list(trabajadores.keys()),
-                key="pot_trab",
-            )
+        f1, f2, f3, f4 = st.columns(4)
 
-        # Opcional: orden
-        st.markdown("### ↕️ Ordenar")
-        c5, c6 = st.columns(2)
-        with c5:
-            sort_field = st.selectbox(
-                "Campo",
+        with f1:
+            perfil_sel = st.selectbox("Perfil", ["Todos", "Completos", "Incompletos"], key="pot_perfil")
+
+        with f2:
+            ver_todos = st.toggle("Ver todos", value=False, key="pot_ver_todos")
+
+        with f3:
+            estado_sel = st.selectbox("Estado", ["Todos"] + list(estados.keys()), key="pot_estado")
+
+        with f4:
+            trab_sel = st.selectbox("Comercial", ["Todos"] + list(trabajadores.keys()), key="pot_trab_sel")
+
+        s1, s2 = st.columns(2)
+        with s1:
+            st.session_state["pot_sort_field"] = st.selectbox(
+                "Ordenar por",
                 ["razon_social", "identificador", "estadoid", "grupoid"],
                 index=["razon_social", "identificador", "estadoid", "grupoid"].index(
                     st.session_state.get("pot_sort_field", "razon_social")
                 ),
+                key="pot_sort_field_sel",
             )
-            st.session_state["pot_sort_field"] = sort_field
-
-        with c6:
-            sort_dir = st.radio(
-                "Dirección",
-                ["ASC", "DESC"],
-                index=0 if st.session_state.get("pot_sort_dir", "ASC") == "ASC" else 1,
+        with s2:
+            st.session_state["pot_sort_dir"] = st.radio(
+                "Dirección", ["ASC", "DESC"],
                 horizontal=True,
+                index=0 if st.session_state.get("pot_sort_dir", "ASC") == "ASC" else 1,
+                key="pot_sort_dir_sel"
             )
-            st.session_state["pot_sort_dir"] = sort_dir
 
-    # ===============================
-    # 📥 Carga + filtros + paginación
-    # ===============================
+    # ---------------------------
+    # Query base
+    # ---------------------------
     try:
         base = (
             supabase.table("cliente")
@@ -181,107 +322,125 @@ def render_cliente_potencial_lista(supabase):
             .eq("tipo_cliente", "potencial")
         )
 
-        # Búsqueda texto
-        or_filter = _build_search_or(q)
-        if or_filter:
-            base = base.or_(or_filter)
-            count_q = count_q.or_(or_filter)
+        if q:
+            or_q = _build_search_or(q)
+            base = base.or_(or_q)
+            count_q = count_q.or_(or_q)
 
-        # Filtros de perfil
         if perfil_sel != "Todos":
-            base = base.eq("perfil_completo", perfil_sel == "Completos")
-            count_q = count_q.eq("perfil_completo", perfil_sel == "Completos")
+            is_completo = (perfil_sel == "Completos")
+            base = base.eq("perfil_completo", is_completo)
+            count_q = count_q.eq("perfil_completo", is_completo)
 
-        # Filtro trabajador / ver solo los míos
-        if not ver_todos and trabajadorid:
-            base = base.eq("trabajadorid", trabajadorid)
-            count_q = count_q.eq("trabajadorid", trabajadorid)
-        elif trab_sel != "Todos" and trab_sel in trabajadores:
+        # Solo mis potenciales (si no "ver todos")
+        if not ver_todos and trabajador_actual:
+            base = base.eq("trabajadorid", trabajador_actual)
+            count_q = count_q.eq("trabajadorid", trabajador_actual)
+
+        # filtro comercial explícito
+        if trab_sel != "Todos" and trab_sel in trabajadores:
             tid = trabajadores[trab_sel]
             base = base.eq("trabajadorid", tid)
             count_q = count_q.eq("trabajadorid", tid)
 
-        # Filtro estado
         if estado_sel != "Todos" and estado_sel in estados:
             eid = estados[estado_sel]
             base = base.eq("estadoid", eid)
             count_q = count_q.eq("estadoid", eid)
 
-        # Conteo total según filtros
-        count_res = count_q.execute()
-        total_potenciales = count_res.count or 0
+        total = count_q.execute().count or 0
 
-        # Paginación real
         page_size = 30
-        page = st.session_state["pot_page"]
-        total_paginas = max(1, math.ceil(total_potenciales / page_size))
-        if page > total_paginas:
-            page = total_paginas
+        page = int(st.session_state.get("pot_page", 1))
+        total_pages = max(1, math.ceil(total / page_size))
+
+        # Corrige si se queda fuera
+        if page > total_pages:
+            page = total_pages
             st.session_state["pot_page"] = page
+        if page < 1:
+            page = 1
+            st.session_state["pot_page"] = 1
 
         start = (page - 1) * page_size
         end = start + page_size - 1
 
-        base = base.order(
-            st.session_state["pot_sort_field"],
-            desc=(st.session_state["pot_sort_dir"] == "DESC"),
+        data = (
+            base.order(
+                st.session_state.get("pot_sort_field", "razon_social"),
+                desc=(st.session_state.get("pot_sort_dir", "ASC") == "DESC"),
+            )
+            .range(start, end)
+            .execute()
+            .data
+            or []
         )
 
-        data = base.range(start, end).execute()
-        potenciales = data.data or []
-        st.session_state["pot_result_count"] = len(potenciales)
+        st.session_state["pot_result_count"] = len(data)
 
     except Exception as e:
-        st.error(f"❌ Error cargando clientes potenciales: {e}")
+        st.error(f"❌ Error cargando potenciales: {e}")
         return
 
-    # ===============================
-    # 📈 Panel de métricas
-    # ===============================
-    st.markdown("---")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("🌱 Total potenciales", total_potenciales)
-    col2.metric("👁️ Vista", "Tarjetas")
-    col3.metric("📆 Última actualización", date.today().strftime("%d/%m/%Y"))
+    # ---------------------------
+    # Panel métricas
+    # ---------------------------
+    m1, m2, m3 = st.columns(3)
+    m1.metric("🌱 Total", total)
+    m2.metric("📄 Página", f"{page}/{total_pages}")
+    m3.metric("📆 Hoy", date.today().strftime("%d/%m/%Y"))
 
     st.caption(
-        f"Mostrando página {page} de {total_paginas} "
-        f"({total_potenciales} potenciales {'de todos los trabajadores' if ver_todos else 'asignados a ti'})"
+        f"Mostrando {len(data)} de {total} potenciales "
+        f"({('todos' if ver_todos else 'asignados a ti')})."
     )
 
     st.markdown("---")
 
-    if not potenciales:
+    if not data:
         st.info("📭 No hay clientes potenciales para mostrar con esos filtros.")
         return
 
-    # ===============================
-    # 🧾 Tarjetas de potenciales
-    # ===============================
+    # ---------------------------
+    # Prefetch
+    # ---------------------------
+    ids = [int(c["clienteid"]) for c in data if c.get("clienteid") is not None]
+    last_pres = _prefetch_presupuestos(supabase, ids)
+    last_crm = _prefetch_ultimo_crm(supabase, ids)
+
+    # ---------------------------
+    # Tarjetas
+    # ---------------------------
     cols = st.columns(3)
-    for i, c in enumerate(potenciales):
+    for i, c in enumerate(data):
+        cid = int(c["clienteid"])
+        c["__last_pres__"] = last_pres.get(cid)
+        c["__last_crm__"] = last_crm.get(cid)
         with cols[i % 3]:
             _render_potencial_card(c, supabase)
 
-    # ===============================
-    # 🔢 Paginación
-    # ===============================
+    # ---------------------------
+    # Paginación
+    # ---------------------------
     st.markdown("---")
-    pag1, pag2, pag3 = st.columns(3)
-    with pag1:
-        if st.button("⬅️ Anterior", disabled=page <= 1):
+    p1, p2, p3 = st.columns(3)
+
+    with p1:
+        if st.button("⬅️ Anterior", disabled=page <= 1, use_container_width=True):
             st.session_state["pot_page"] = page - 1
             st.rerun()
-    with pag2:
-        st.write(f"Página {page} / {total_paginas}")
-    with pag3:
-        if st.button("Siguiente ➡️", disabled=page >= total_paginas):
+
+    with p2:
+        st.write(f"Página {page} / {total_pages}")
+
+    with p3:
+        if st.button("Siguiente ➡️", disabled=page >= total_pages, use_container_width=True):
             st.session_state["pot_page"] = page + 1
             st.rerun()
 
 
 # =========================================================
-# 🧾 Tarjeta de cliente potencial
+# 🧾 TARJETA DE CLIENTE POTENCIAL
 # =========================================================
 def _render_potencial_card(c: Dict[str, Any], supabase):
     apply_orbe_theme()
@@ -289,65 +448,86 @@ def _render_potencial_card(c: Dict[str, Any], supabase):
     razon = _safe(c.get("razon_social"))
     ident = _safe(c.get("identificador"))
 
-    estado = get_estado_label(c.get("estadoid"), supabase) or "Potencial"
     categoria = get_categoria_label(c.get("categoriaid"), supabase) or "-"
     grupo = get_grupo_label(c.get("grupoid"), supabase) or "Sin grupo"
     trabajador = get_trabajador_label(c.get("trabajadorid"), supabase) or "Sin comercial"
+
     fid = _normalize_id(c.get("formapagoid"))
     forma_pago = get_formapago_label(fid, supabase) if fid else "-"
 
-    completo = bool(c.get("perfil_completo", False))
-
-    # Badge de perfil
-    perfil_html = (
+    completo = _bool(c.get("perfil_completo"))
+    perfil_badge = (
         "<span style='color:#16a34a;font-weight:600;'>🟢 Perfil completo</span>"
         if completo
-        else "<span style='color:#dc2626;font-weight:600;'>🔴 Faltan datos</span>"
+        else "<span style='color:#dc2626;font-weight:600;'>🔴 Perfil incompleto</span>"
     )
 
-    color_estado = "#3b82f6"  # azul “Potencial”
+    # ---------- Presupuesto ----------
+    pres = c.get("__last_pres__") or {}
+    estado_pres = {1: "Pendiente", 2: "Aceptado", 3: "Rechazado"}.get(
+        pres.get("estado_presupuestoid"), "Sin presupuesto"
+    )
+    pres_num = pres.get("numero") or "-"
+    pres_fecha = pres.get("fecha_presupuesto") or "-"
+    pres_color = {
+        "Pendiente": "#f59e0b",
+        "Aceptado": "#16a34a",
+        "Rechazado": "#dc2626",
+        "Sin presupuesto": "#6b7280",
+    }.get(estado_pres, "#6b7280")
+
+    # ---------- CRM ----------
+    crm = c.get("__last_crm__") or {}
+    crm_estado = crm.get("estado", "—")
+    crm_fecha = crm.get("fecha_vencimiento", "—")
+    crm_titulo = _short(crm.get("titulo", "—"), 36)
 
     html = f"""
     <div style="border:1px solid #d1fae5;border-radius:12px;
                 background:#f0fdf4;padding:14px;margin-bottom:14px;
-                box-shadow:0 1px 3px rgba(0,0,0,0.08);">
+                box-shadow:0 1px 3px rgba(0,0,0,.08);">
 
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-            <div>
-                <div style="font-size:1.05rem;font-weight:600;
-                            white-space:nowrap;overflow:hidden;
-                            text-overflow:ellipsis;max-width:230px;">
+        <div style="display:flex;justify-content:space-between;gap:10px;">
+            <div style="min-width:0;">
+                <div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
                     🌱 {razon}
                 </div>
-                <div style="color:#6b7280;font-size:0.9rem;
-                            white-space:nowrap;overflow:hidden;
-                            text-overflow:ellipsis;max-width:230px;">
+                <div style="color:#6b7280;font-size:.9rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
                     {ident}
                 </div>
             </div>
-            <div style="color:{color_estado};font-weight:600;
-                        white-space:nowrap;margin-left:8px;">
+            <div style="color:#3b82f6;font-weight:700;white-space:nowrap;">
                 Potencial
             </div>
         </div>
 
-        <div style="margin-top:8px;font-size:0.9rem;line-height:1.45;">
+        <div style="margin-top:8px;font-size:.9rem;line-height:1.45;">
             🧩 <b>Categoría:</b> {categoria}<br>
             👥 <b>Grupo:</b> {grupo}<br>
             🧑 <b>Comercial:</b> {trabajador}<br>
             💳 <b>Forma de pago:</b> {forma_pago}<br>
-            {perfil_html}
+            {perfil_badge}
+
+            <div style="margin-top:8px;border-top:1px dashed #d1d5db;padding-top:6px;">
+                <b>📨 Último presupuesto</b><br>
+                <span style="color:{pres_color};font-weight:700;">{estado_pres}</span>
+                <span style="color:#6b7280;"> · {pres_num} · {pres_fecha}</span><br>
+
+                <b>💬 Última acción CRM</b><br>
+                <span style="font-weight:700;">{crm_estado}</span>
+                <span style="color:#6b7280;"> · {crm_fecha}</span><br>
+                <span style="color:#374151;">{crm_titulo}</span>
+            </div>
         </div>
     </div>
     """
 
-    st_html(html, height=230)
+    st_html(html, height=330)
 
-    col1, col2, col3 = st.columns(3)
+    b1, b2, b3 = st.columns(3)
 
-    # Ficha
-    with col1:
-        if st.button("📄 Ficha", key=f"ficha_pot_{c['clienteid']}", use_container_width=True):
+    with b1:
+        if st.button("📄 Ficha", key=f"pot_ficha_{c['clienteid']}", use_container_width=True):
             st.session_state.update(
                 {
                     "cliente_potencial_id": c["clienteid"],
@@ -357,48 +537,40 @@ def _render_potencial_card(c: Dict[str, Any], supabase):
             )
             st.rerun()
 
-    # Crear presupuesto (opcional, igual que clientes)
-    with col2:
-        if st.button("📨 Presupuesto", key=f"pres_pot_{c['clienteid']}", use_container_width=True):
+    with b2:
+        if st.button("📨 Presupuesto", key=f"pot_pres_{c['clienteid']}", use_container_width=True):
             try:
                 supabase.table("presupuesto").insert(
                     {
-                        "numero": f"PRES-{date.today().year}-{c['clienteid']}",
                         "clienteid": c["clienteid"],
+                        "numero": f"PRES-{date.today().year}-{c['clienteid']}",
                         "estado_presupuestoid": 1,
                         "fecha_presupuesto": date.today().isoformat(),
-                        "observaciones": "Presupuesto creado desde cliente potencial.",
                         "editable": True,
-                        "facturar_individual": False,
                     }
                 ).execute()
-                st.toast(f"📨 Presupuesto creado para {razon}.", icon="📨")
+                st.toast("📨 Presupuesto creado", icon="📨")
+                st.rerun()
             except Exception as e:
                 st.error(f"❌ Error creando presupuesto: {e}")
 
-    # Convertir a cliente
-    with col3:
+    with b3:
         if completo:
-            if st.button("🚀 Convertir", key=f"conv_{c['clienteid']}", use_container_width=True):
+            if st.button("🚀 Convertir", key=f"pot_conv_{c['clienteid']}", use_container_width=True):
                 try:
-                    supabase.table("cliente").update(
-                        {"tipo_cliente": "cliente", "estadoid": 1}
-                    ).eq("clienteid", c["clienteid"]).execute()
-                    st.success(f"🎉 {razon} convertido a cliente activo.")
+                    supabase.table("cliente").update({"tipo_cliente": "cliente", "estadoid": 1}).eq(
+                        "clienteid", c["clienteid"]
+                    ).execute()
+                    st.success("🎉 Convertido a cliente")
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error al convertir: {e}")
         else:
-            st.button(
-                "❌ Incompleto",
-                key=f"no_conv_{c['clienteid']}",
-                use_container_width=True,
-                disabled=True,
-            )
+            st.button("❌ Incompleto", disabled=True, use_container_width=True)
 
 
 # =========================================================
-# 🌱 Ficha completa de cliente potencial (arriba)
+# 🌱 FICHA COMPLETA DE POTENCIAL
 # =========================================================
 def _render_potencial_ficha(supabase):
     apply_orbe_theme()
@@ -407,13 +579,15 @@ def _render_potencial_ficha(supabase):
     if not clienteid:
         return
 
-    # Cargar datos base
+    # ---------------------------
+    # Cargar cliente base
+    # ---------------------------
     try:
         cli = (
             supabase.table("cliente")
             .select(
-                "clienteid, razon_social, identificador, trabajadorid, formapagoid, "
-                "grupoid, categoriaid, estadoid, perfil_completo, tipo_cliente, observaciones"
+                "clienteid, razon_social, identificador, trabajadorid, "
+                "formapagoid, grupoid, categoriaid, estadoid, observaciones, perfil_completo, tipo_cliente"
             )
             .eq("clienteid", int(clienteid))
             .single()
@@ -421,146 +595,118 @@ def _render_potencial_ficha(supabase):
             .data
         )
     except Exception as e:
-        st.error(f"❌ Error cargando la ficha del potencial: {e}")
+        st.error(f"❌ Error cargando cliente potencial: {e}")
         return
 
-    razon = cli.get("razon_social") or "(Sin nombre)"
-    identificador = cli.get("identificador") or "-"
-    tipo_cliente = cli.get("tipo_cliente") or "potencial"
-    estado_txt = get_estado_label(cli.get("estadoid"), supabase) or "Potencial"
-    grupo = get_grupo_label(cli.get("grupoid"), supabase) or "Sin grupo"
-    categoria = get_categoria_label(cli.get("categoriaid"), supabase) or "-"
-    comercial = get_trabajador_label(cli.get("trabajadorid"), supabase) or "Sin comercial"
-    forma_pago = get_formapago_label(cli.get("formapagoid"), supabase) or "-"
-    perfil_completo_flag = bool(cli.get("perfil_completo", False))
+    razon = _safe(cli.get("razon_social"), "(Sin nombre)")
+    identificador = _safe(cli.get("identificador"))
+    tipo_cliente = _safe(cli.get("tipo_cliente"), "potencial")
 
-    # ======================================================
-    # 📋 Evaluar estado del perfil (igual que tu lógica antigua)
-    # ======================================================
-    try:
-        dir_fiscal = (
-            supabase.table("cliente_direccion")
-            .select("direccion, ciudad, cp, pais")
-            .eq("clienteid", int(clienteid))
-            .eq("tipo", "fiscal")
-            .limit(1)
-            .execute()
-            .data
-        )
-        tiene_dir = bool(
-            dir_fiscal
-            and dir_fiscal[0].get("direccion")
-            and dir_fiscal[0].get("cp")
-        )
-    except Exception:
-        tiene_dir = False
+    estado_txt = get_estado_label(cli.get("estadoid"), supabase) or "—"
+    categoria_txt = get_categoria_label(cli.get("categoriaid"), supabase) or "—"
+    grupo_txt = get_grupo_label(cli.get("grupoid"), supabase) or "Sin grupo"
+    comercial_txt = get_trabajador_label(cli.get("trabajadorid"), supabase) or "Sin comercial"
+    forma_pago_txt = get_formapago_label(_normalize_id(cli.get("formapagoid")), supabase) if cli.get("formapagoid") else "—"
 
-    tiene_pago = bool(cli.get("formapagoid"))
-    tiene_trab = bool(cli.get("trabajadorid"))
+    # ---------------------------
+    # Perfil: faltantes + persistencia
+    # ---------------------------
+    faltan = _calcular_faltantes_perfil(supabase, cli)
+    perfil_ok = (len(faltan) == 0)
+    _persistir_perfil_completo(supabase, int(clienteid), perfil_ok)
 
-    faltan: List[str] = []
-    if not tiene_dir:
-        faltan.append("Dirección fiscal con código postal")
-    if not tiene_pago:
-        faltan.append("Forma de pago definida")
-    if not tiene_trab:
-        faltan.append("Trabajador asignado")
-
-    perfil_ok = len(faltan) == 0
-
-    # Guardar flag perfil_completo en BBDD (como antes)
-    try:
-        supabase.table("cliente").update({"perfil_completo": perfil_ok}).eq(
-            "clienteid", int(clienteid)
-        ).execute()
-    except Exception:
-        pass
-
-    # ======================================================
-    # 🧱 Cabecera y resumen
-    # ======================================================
+    # ---------------------------
+    # Cabecera + volver
+    # ---------------------------
     st.markdown("## ")
+    c1, c2 = st.columns([1, 5])
 
-    col_close, col_title = st.columns([1, 4])
-    with col_close:
-        if st.button("⬅️ Cerrar ficha", key="close_potencial_ficha", use_container_width=True):
+    with c1:
+        if st.button("⬅️ Volver", key="pot_back", use_container_width=True):
             st.session_state["show_potencial_modal"] = False
             st.session_state["cliente_potencial_id"] = None
             st.session_state["pot_confirm_delete"] = False
             st.rerun()
 
-    with col_title:
-        bg_color = "#f0fdf4" if perfil_ok else "#fef3c7"
-        border_color = "#16a34a" if perfil_ok else "#f59e0b"
-        perfil_txt = "✅ Perfil completo" if perfil_ok else "⚠️ Perfil incompleto"
-
+    with c2:
         st.markdown(
             f"""
-            <div style='padding:14px;border-radius:12px;
-                        background:{bg_color};border:1px solid {border_color};'>
-                <h3 style='margin:0;'>🌱 {razon}</h3>
-                <p style='margin:4px 0 0 0;color:#4b5563;font-size:0.9rem;'>
-                    <b>ID interno:</b> {clienteid} · 
-                    <b>Identificador:</b> {identificador} · 
-                    <b>Tipo:</b> {tipo_cliente} ·
-                    <b>Estado:</b> {estado_txt}
-                </p>
-                <p style='margin:4px 0 0 0;color:#065f46;font-weight:600;'>{perfil_txt}</p>
+            <div style="padding:14px;border-radius:12px;
+                        background:{'#f0fdf4' if perfil_ok else '#fef3c7'};
+                        border:1px solid {'#16a34a' if perfil_ok else '#f59e0b'};">
+                <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;">
+                    <div style="min-width:0;">
+                        <h3 style="margin:0;">🌱 {razon}</h3>
+                        <p style="margin:.25rem 0 0 0;color:#4b5563;">
+                            <b>ID:</b> {clienteid} · <b>Identificador:</b> {identificador} · <b>Tipo:</b> {tipo_cliente} · <b>Estado:</b> {estado_txt}
+                        </p>
+                        <p style="margin:.25rem 0 0 0;color:#374151;">
+                            <b>Categoría:</b> {categoria_txt} · <b>Grupo:</b> {grupo_txt} · <b>Comercial:</b> {comercial_txt} · <b>Forma pago:</b> {forma_pago_txt}
+                        </p>
+                    </div>
+                    <div style="font-weight:800;color:{'#16a34a' if perfil_ok else '#b45309'};white-space:nowrap;">
+                        {'✅ Perfil completo' if perfil_ok else '⚠️ Perfil incompleto'}
+                    </div>
+                </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    # Resumen detalle
-    st.markdown(
-        f"""
-        <div style='margin-top:8px;margin-bottom:8px;
-                    padding:12px 14px;border-radius:12px;
-                    background:#ffffff;border:1px solid #e5e7eb;'>
-            <div style='display:flex;flex-wrap:wrap;gap:18px;font-size:0.9rem;color:#374151;'>
-                <div><b>Categoría:</b> {categoria}</div>
-                <div><b>Grupo:</b> {grupo}</div>
-                <div><b>Comercial:</b> {comercial}</div>
-                <div><b>Forma de pago:</b> {forma_pago}</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # ---------------------------
+    # Avisos “faltan datos”
+    # ---------------------------
+    if not perfil_ok:
+        st.warning("⚠️ Faltan datos para poder convertir este potencial a cliente:")
+        for f in faltan:
+            st.write(f"❌ {f}")
+    else:
+        st.success("✅ Perfil completo. Ya se puede convertir a cliente cuando quieras.")
 
-    # Bloque estado perfil
-    color_bg = "#dcfce7" if perfil_ok else "#fef3c7"
-    color_border = "#16a34a" if perfil_ok else "#fcd34d"
+    obs = (cli.get("observaciones") or "").strip()
+    if obs:
+        st.info(obs)
 
-    st.markdown(
-        f"""
-        <div style="background:{color_bg};border:1px solid {color_border};
-                    padding:10px 14px;border-radius:8px;margin-bottom:10px;">
-            <b>📋 Estado del perfil</b><br>
-            {'✅ Dirección fiscal con CP' if tiene_dir else '❌ Falta dirección fiscal con CP'}<br>
-            {'✅ Forma de pago definida' if tiene_pago else '❌ Falta forma de pago'}<br>
-            {'✅ Trabajador asignado' if tiene_trab else '❌ Falta trabajador asignado'}<br>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    # ---------------------------
+    # KPIs rápidos (presupuestos + CRM pendientes)
+    # ---------------------------
+    try:
+        pres_count = (
+            supabase.table("presupuesto")
+            .select("presupuestoid", count="exact")
+            .eq("clienteid", int(clienteid))
+            .execute()
+        ).count or 0
+    except Exception:
+        pres_count = "N/D"
 
-    # Observaciones breves en ficha base (si existe)
-    obs_breve = cli.get("observaciones")
-    if obs_breve:
-        st.info(obs_breve)
+    try:
+        crm_pend = (
+            supabase.table("crm_actuacion")
+            .select("crm_actuacionid", count="exact")
+            .eq("clienteid", int(clienteid))
+            .eq("estado", "Pendiente")
+            .execute()
+        ).count or 0
+    except Exception:
+        crm_pend = "N/D"
+
+    k1, k2 = st.columns(2)
+    k1.metric("📨 Presupuestos", pres_count)
+    k2.metric("💬 CRM pendientes", crm_pend)
 
     st.markdown("---")
 
-    # ======================================================
-    # 🧷 TABS (sin Presupuestos/Pedidos → opción B)
-    # ======================================================
+    # ---------------------------
+    # Tabs
+    # ---------------------------
     (
         tab_dir,
         tab_fact,
-        tab_contactos,
+        tab_cont,
         tab_obs,
         tab_crm,
+        tab_pres,
         tab_conv,
     ) = st.tabs(
         [
@@ -569,6 +715,7 @@ def _render_potencial_ficha(supabase):
             "👥 Contactos",
             "🗒️ Observaciones",
             "💬 CRM",
+            "🧾 Presupuestos",
             "🚀 Conversión",
         ]
     )
@@ -579,7 +726,7 @@ def _render_potencial_ficha(supabase):
     with tab_fact:
         render_facturacion_form(supabase, int(clienteid))
 
-    with tab_contactos:
+    with tab_cont:
         render_contacto_form(supabase, int(clienteid))
 
     with tab_obs:
@@ -588,68 +735,97 @@ def _render_potencial_ficha(supabase):
     with tab_crm:
         render_crm_form(supabase, int(clienteid))
 
-    # TAB Conversión
+    with tab_pres:
+        st.markdown("### 🧾 Presupuestos del potencial")
+        st.caption("Los potenciales trabajan con presupuestos mientras se completa el perfil.")
+
+        try:
+            presupuestos = (
+                supabase.table("presupuesto")
+                .select("presupuestoid, numero, fecha_presupuesto, total_estimada, estado_presupuestoid")
+                .eq("clienteid", int(clienteid))
+                .order("fecha_presupuesto", desc=True)
+                .execute()
+                .data
+                or []
+            )
+        except Exception as e:
+            st.error(f"❌ Error cargando presupuestos: {e}")
+            presupuestos = []
+
+        if not presupuestos:
+            st.info("📭 Este potencial no tiene presupuestos registrados aún.")
+        else:
+            estado_map = {1: "Pendiente", 2: "Aceptado", 3: "Rechazado"}
+            color_map = {"Pendiente": "#f59e0b", "Aceptado": "#16a34a", "Rechazado": "#dc2626"}
+
+            for p in presupuestos:
+                est = estado_map.get(p.get("estado_presupuestoid"), "Desconocido")
+                color = color_map.get(est, "#6b7280")
+
+                st.markdown(
+                    f"""
+                    <div style='border:1px solid #e5e7eb;border-left:5px solid {color};
+                                background:#f9fafb;padding:10px 12px;margin:6px 0;border-radius:8px;'>
+                        <b>{p.get('numero','(Sin número)')}</b> — 🗓️ {p.get('fecha_presupuesto','-')}<br>
+                        💰 <b>{p.get('total_estimada','-')} €</b><br>
+                        <span style='color:{color};font-weight:700;'>{est}</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
     with tab_conv:
         st.markdown("### 🚀 Conversión a cliente activo")
+
         if perfil_ok:
-            st.success(
-                "✅ El perfil está completo. Puedes convertir este potencial en cliente activo."
-            )
+            st.success("✅ Perfil completo. Puedes convertirlo a cliente activo.")
         else:
-            st.warning("⚠️ Debes completar los siguientes puntos antes de convertir:")
-            for m in faltan:
-                st.markdown(f"- ❌ {m}")
+            st.warning("⚠️ Antes de convertir, completa lo siguiente:")
+            for f in faltan:
+                st.write(f"❌ {f}")
 
         st.markdown("---")
 
-        col_a, col_b = st.columns([2, 1])
-        with col_a:
+        cA, cB = st.columns([2, 1])
+
+        with cA:
             if perfil_ok:
-                if st.button(
-                    "✅ Convertir a cliente activo",
-                    key="convertir_cliente_potencial_real",
-                    use_container_width=True,
-                ):
+                if st.button("✅ Convertir a cliente", key="pot_convert_btn", use_container_width=True):
                     try:
-                        supabase.table("cliente").update(
-                            {"tipo_cliente": "cliente", "estadoid": 1}
-                        ).eq("clienteid", int(clienteid)).execute()
-                        st.success("🎉 Cliente potencial convertido a cliente activo correctamente.")
+                        supabase.table("cliente").update({"tipo_cliente": "cliente", "estadoid": 1}).eq(
+                            "clienteid", int(clienteid)
+                        ).execute()
+                        st.success("🎉 Cliente convertido a activo")
                         st.session_state["show_potencial_modal"] = False
                         st.session_state["cliente_potencial_id"] = None
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Error al convertir cliente: {e}")
-            else:
-                st.button(
-                    "✅ Convertir a cliente activo",
-                    key="convertir_cliente_potencial_disabled",
-                    disabled=True,
-                    use_container_width=True,
-                )
-
-        with col_b:
-            st.markdown("### ")
-            if not st.session_state.get("pot_confirm_delete"):
-                if st.button("🗑️ Eliminar potencial", use_container_width=True):
-                    st.session_state["pot_confirm_delete"] = True
-                    st.warning("⚠️ Pulsa **Confirmar eliminación** para borrar este cliente potencial.")
-            else:
-                col_c, col_d = st.columns(2)
-                with col_c:
-                    if st.button("❌ Cancelar", use_container_width=True):
                         st.session_state["pot_confirm_delete"] = False
                         st.rerun()
-                with col_d:
-                    if st.button("✅ Confirmar", use_container_width=True):
+                    except Exception as e:
+                        st.error(f"❌ Error al convertir: {e}")
+            else:
+                st.button("✅ Convertir a cliente", disabled=True, use_container_width=True)
+
+        with cB:
+            st.markdown("### ")
+            if not st.session_state.get("pot_confirm_delete"):
+                if st.button("🗑️ Eliminar potencial", key="pot_delete_btn", use_container_width=True):
+                    st.session_state["pot_confirm_delete"] = True
+                    st.warning("⚠️ Pulsa Confirmar para eliminar definitivamente.")
+            else:
+                d1, d2 = st.columns(2)
+                with d1:
+                    if st.button("Cancelar", key="pot_delete_cancel", use_container_width=True):
+                        st.session_state["pot_confirm_delete"] = False
+                        st.rerun()
+                with d2:
+                    if st.button("Confirmar", key="pot_delete_confirm", use_container_width=True):
                         try:
-                            supabase.table("cliente").delete().eq(
-                                "clienteid", int(clienteid)
-                            ).execute()
-                            st.success("🗑️ Cliente potencial eliminado correctamente.")
-                            st.session_state["pot_confirm_delete"] = False
+                            supabase.table("cliente").delete().eq("clienteid", int(clienteid)).execute()
+                            st.success("🗑️ Potencial eliminado")
                             st.session_state["show_potencial_modal"] = False
                             st.session_state["cliente_potencial_id"] = None
+                            st.session_state["pot_confirm_delete"] = False
                             st.rerun()
                         except Exception as e:
-                            st.error(f"❌ Error al eliminar cliente: {e}")
+                            st.error(f"❌ Error eliminando: {e}")

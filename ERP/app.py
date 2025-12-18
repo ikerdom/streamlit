@@ -7,7 +7,10 @@ import subprocess
 import webbrowser
 import os
 import sys
+from dotenv import dotenv_values
 from datetime import date
+from dotenv import load_dotenv
+load_dotenv()
 
 # ======================================================
 # ⚙️ CONFIGURACIÓN GLOBAL
@@ -21,15 +24,80 @@ st.set_page_config(
 
 def launch_dataquerybot():
     ruta_bot = os.path.join(os.getcwd(), "dataquerybot")
-    env = os.environ.copy()
-    env["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY")
+    fallback_env = dotenv_values(os.path.join(ruta_bot, ".env"))
 
-    subprocess.Popen(
-        [sys.executable, "-m", "streamlit", "run", "app.py"],
+    # --------------------------------------------------------
+    # 🔥 ENTORNO LIMPIO (solo lo necesario)
+    # --------------------------------------------------------
+    env = os.environ.copy()  # heredamos PATH y resto de variables base
+
+    # --------------------------------------------------------
+    # 🔥 SUPABASE_URL (obligatoria)
+    # --------------------------------------------------------
+    # Preferimos la del .env interno del bot para no depender del host
+    supa_url = fallback_env.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
+    if not supa_url:
+        st.error("❌ Falta SUPABASE_URL en tu archivo .env (nivel ERP)")
+        return
+
+    env["SUPABASE_URL"] = supa_url.strip()
+
+    # --------------------------------------------------------
+    # 🔥 OPENAI_API_KEY (obligatoria)
+    # --------------------------------------------------------
+    # Preferimos la del .env interno del bot para no depender del host
+    openai_key = fallback_env.get("OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not openai_key:
+        st.error("❌ Falta OPENAI_API_KEY en tu archivo .env (nivel ERP)")
+        return
+
+    env["OPENAI_API_KEY"] = openai_key.strip()
+
+    # --------------------------------------------------------
+    # 🧹 EXPULSAR POSIBLES CLAVES ANTIGUAS DEL SISTEMA
+    # --------------------------------------------------------
+    # Evita que DataQueryBot use una clave heredada del usuario
+    for bad in ["OPENAI_APIKEY", "OPENAI_KEY", "OPENAI", "API_KEY"]:
+        env.pop(bad, None)
+
+    # --------------------------------------------------------
+    # 🚀 Lanzar DataQueryBot (subproceso Streamlit)
+    # --------------------------------------------------------
+    cmd = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        "app.py",
+        "--server.port",
+        "8600",
+        "--server.address",
+        "localhost",
+    ]
+    proc = subprocess.Popen(
+        cmd,
         cwd=ruta_bot,
-        env=env,
-        shell=True
+        env=env,     # ← ENTORNO CONTROLADO, SIN BASURA
+        shell=False  # heredamos PATH correcto sin depender del shell
     )
+    st.toast(f"DataQueryBot lanzado (PID {proc.pid})", icon="✅")
+
+    # --------------------------------------------------------
+    # 🔗 Abrir navegador con identidad del usuario
+    # --------------------------------------------------------
+    user = st.session_state.get("user_email", "anon")
+    rol = st.session_state.get("rol_usuario", "N/A")
+    tipo = st.session_state.get("tipo_usuario", "N/A")
+
+    url = (
+        f"http://localhost:8600/"
+        f"?token=ENTENOVA2025"
+        f"&user={user}"
+        f"&rol={rol}"
+        f"&tipo={tipo}"
+    )
+
+    webbrowser.open_new_tab(url)
 
 # ======================================================
 # 🎨 TEMA CORPORATIVO ORBE
@@ -81,6 +149,10 @@ from modules.campania.campania_progreso import render as render_campania_progres
 from modules.campania.campania_detalle import render as render_campania_detalle
 from modules.campania.campania_informes import render as render_campania_informes
 from modules.campania.campania_router import render_campania_router
+from modules.ai_querybot.ai_page import render_ai_page
+
+#ia
+from modules.ai_querybot.ai_page import render_ai_page
 
 # ======================================================
 # 🧩 CONTROL DE SESIÓN
@@ -221,12 +293,10 @@ elif opcion == "🧮 Simulador de tarifas":
     st.sidebar.subheader("🧮 Simulador de precios y tarifas")
     render_simulador_pedido(supabase)
 
-elif opcion == "🤖 IA · Consultas Inteligentes":
-    st.subheader("🤖 IA · Consultas Inteligentes")
-    st.info("Haz clic para abrir el DataQueryBot completo en una nueva ventana.")
-    
-    if st.button("🔗 Abrir DataQueryBot Completo"):
-        launch_dataquerybot()
+
+elif "IA · Consultas" in opcion:
+    # Toda la UI y el botón están en ai_page.py
+    render_ai_page(launch_dataquerybot)
 
 elif opcion == "🗓️ Calendario CRM":
     st.sidebar.subheader("🗓️ Acciones y calendario")
@@ -249,7 +319,7 @@ elif opcion == "⚠️ Incidencias":
 
 elif opcion == "📈 Diagramas y métricas":
     render_diagramas()
-    
+
 
 elif opcion == "Nuevo lead":
     render_lead_form()
