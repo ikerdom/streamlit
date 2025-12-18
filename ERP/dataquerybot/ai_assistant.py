@@ -1,43 +1,64 @@
-# ai_assistant.py
+﻿# ai_assistant.py
 
+import logging
 import os
 import re
 from datetime import timedelta
 
 import numpy as np
 import pandas as pd
+from dotenv import load_dotenv
 from openai import OpenAI
+from pandas.api.types import is_numeric_dtype
 from sklearn.linear_model import LinearRegression
-from pandas.api.types import is_numeric_dtype   # <--- AÑADE ESTA LÍNEA
-from datetime import timedelta
+
+# Cargar variables de entorno locales si existen
+load_dotenv()
+
+# Logging simple para no exponer claves en claro
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+def _mask_key(key: str) -> str:
+    """Devuelve una version enmascarada de la clave para logs seguros."""
+    if not key:
+        return "(missing)"
+    if len(key) <= 6:
+        return "***" + key[-2:]
+    return key[:4] + "***" + key[-2:]
+
+
+def _get_env_or_default(var_name: str, default: str) -> str:
+    """Lee un env var, aplica strip y si falta usa default dejando aviso."""
+    value = os.getenv(var_name, "").strip()
+    if value:
+        return value
+    logger.warning("%s no esta definido; usando default: %s", var_name, default)
+    return default
 
 
 # ============================================================
 # Cliente OpenAI (usa la API key del entorno)
 # ============================================================
-# ============================================================
-# 🔥 FORZAMOS USO EXCLUSIVO DE LA API KEY DEL ERP
-# ============================================================
 
 API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
 
-# Mostrar solo los primeros caracteres para debug seguro
-print("🔍 OPENAI KEY QUE DATAQUERYBOT VA A USAR ->", API_KEY[:12] + "***")
-
 if not API_KEY:
-    raise RuntimeError("❌ ERROR CRÍTICO: DataQueryBot NO ha recibido OPENAI_API_KEY del ERP.")
+    raise RuntimeError("ERROR: DataQueryBot no ha recibido OPENAI_API_KEY del ERP.")
+
+logger.info("OPENAI key detectada para DataQueryBot: %s", _mask_key(API_KEY))
 
 # Crear cliente con ESA clave, ignorando cualquier otra del sistema
 client = OpenAI(api_key=API_KEY)
 
-
-SQL_MODEL = os.getenv("OPENAI_SQL_MODEL", "gpt-4o")
-SUMMARY_MODEL = os.getenv("OPENAI_SUMMARY_MODEL", "gpt-4o")
-ANALYSIS_MODEL = os.getenv("OPENAI_ANALYSIS_MODEL", "gpt-4o")
+SQL_MODEL = _get_env_or_default("OPENAI_SQL_MODEL", "gpt-4o")
+SUMMARY_MODEL = _get_env_or_default("OPENAI_SUMMARY_MODEL", "gpt-4o")
+ANALYSIS_MODEL = _get_env_or_default("OPENAI_ANALYSIS_MODEL", "gpt-4o")
 
 
 # ============================================================
-# Utilidades para generación y limpieza de SQL
+# Utilidades para generacion y limpieza de SQL
 # ============================================================
 
 def _schema_to_text(schema: pd.DataFrame) -> str:
@@ -62,7 +83,7 @@ def _extract_sql_only(raw: str) -> str:
     Extrae SOLO la sentencia SQL de la respuesta del modelo.
     Admite:
       - Bloques ```sql ... ```
-      - Texto con explicación + SELECT / WITH
+      - Texto con explicacion + SELECT / WITH
     """
     if not raw:
         return ""
@@ -93,7 +114,7 @@ def _extract_sql_only(raw: str) -> str:
 def _ensure_limit(sql: str, default_limit: int = 1000) -> str:
     """
     Asegura que la consulta tiene LIMIT, pero sin cargarse consultas
-    agregadas típicas (GROUP BY por mes/año, etc.).
+    agregadas tipicas (GROUP BY por mes/ano, etc.).
     """
     if not sql:
         return sql
@@ -103,11 +124,11 @@ def _ensure_limit(sql: str, default_limit: int = 1000) -> str:
         return sql
 
     # Si es una consulta agregada con GROUP BY, normalmente no queremos
-    # recortar arbitrariamente el número de filas (ej. 12 meses).
+    # recortar arbitrariamente el numero de filas (ej. 12 meses).
     if re.search(r"\bGROUP\s+BY\b", sql, flags=re.I):
         return sql
 
-    # Si es una subconsulta terminada en ';', mantén el ';' al final
+    # Si es una subconsulta terminada en ';', manten el ';' al final
     stripped = sql.rstrip()
     has_semicolon = stripped.endswith(";")
     if has_semicolon:
@@ -122,11 +143,7 @@ def _ensure_limit(sql: str, default_limit: int = 1000) -> str:
 
 
 # ============================================================
-# Generación de SQL a partir de lenguaje natural
-# ============================================================
-
-# ============================================================
-# Generación de SQL a partir de lenguaje natural
+# Generacion de SQL a partir de lenguaje natural
 # ============================================================
 
 def generate_sql_query(question: str, schema: pd.DataFrame, default_limit: int = 1000) -> str:
@@ -144,16 +161,16 @@ Reglas adicionales importantes:
   NO reutilices los alias de tablas internas (f., p., c., etc.) fuera de la subconsulta,
   porque eso genera errores de "missing FROM-clause entry" en PostgreSQL.
 
-- Está TOTALMENTE PROHIBIDO generar instrucciones que no sean SELECT:
+- Esta PROHIBIDO generar instrucciones que no sean SELECT:
   no uses INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, GRANT, REVOKE,
   TRUNCATE, EXEC, CALL ni nada parecido.
 
-- Usa únicamente las tablas y columnas que aparecen en el esquema.
+- Usa unicamente las tablas y columnas que aparecen en el esquema.
   Si el usuario menciona un concepto de negocio ("cliente", "familia de producto"),
-  intenta mapearlo a las columnas más probables sin inventar nombres nuevos.
+  intenta mapearlo a las columnas mas probables sin inventar nombres nuevos.
 
-- Si el usuario pide "los N más vendidos POR cada X" o "el más vendido de CADA X"
-  (por ejemplo: por mes, por año, por familia, por cliente, por canal...),
+- Si el usuario pide "los N mas vendidos POR cada X" o "el mas vendido de CADA X"
+  (por ejemplo: por mes, por ano, por familia, por cliente, por canal...),
   NO basta con ORDER BY + LIMIT global. En esos casos:
 
   1) Calcula un agregado por grupo (SUM, COUNT, etc.).
@@ -162,20 +179,20 @@ Reglas adicionales importantes:
   3) Filtra por ese ranking (ej. WHERE rn = 1 para el top 1 por grupo,
      o WHERE rn <= N para top N por grupo).
 
-- Para agrupar por meses o años en PostgreSQL, utiliza DATE_TRUNC:
+- Para agrupar por meses o anos en PostgreSQL, utiliza DATE_TRUNC:
     DATE_TRUNC('month', fecha) AS mes
     DATE_TRUNC('year', fecha)  AS anio
 
-- Si el usuario pide "un registro por mes" o "todas las familias por año",
-  asegúrate de que la consulta devuelve una fila por cada mes/año solicitado,
+- Si el usuario pide "un registro por mes" o "todas las familias por ano",
+  asegurate de que la consulta devuelve una fila por cada mes/ano solicitado,
   no solo unas pocas filas recortadas por LIMIT global.
 """
 
     examples = """
-Ejemplos de conversión (NO los ejecutes, solo úsalos como referencia de estilo):
+Ejemplos de conversion (NO los ejecutes, solo usalos como referencia de estilo):
 
 Ejemplo 1
-Pregunta: "La familia de producto más vendida en cada mes de 2025."
+Pregunta: "La familia de producto mas vendida en cada mes de 2025."
 SQL correcta:
 
 SELECT mes, familia, total_importe
@@ -200,7 +217,7 @@ WHERE rn = 1
 ORDER BY mes;
 
 Ejemplo 2
-Pregunta: "Importe total de ventas por año y familia de producto."
+Pregunta: "Importe total de ventas por ano y familia de producto."
 SQL correcta:
 
 SELECT
@@ -214,7 +231,7 @@ GROUP BY DATE_TRUNC('year', f.fecha_emision), pf.nombre
 ORDER BY anio, total_ventas DESC;
 
 Ejemplo 3
-Pregunta: "Dime la facturación total en Aragón por cada mes en 2025."
+Pregunta: "Dime la facturacion total en Aragon por cada mes en 2025."
 SQL correcta:
 
 SELECT
@@ -225,7 +242,7 @@ JOIN cliente c          ON f.clienteid   = c.clienteid
 JOIN cliente_direccion cd ON c.clienteid = cd.clienteid
 JOIN postal_localidad pl  ON cd.postallocid = pl.postallocid
 WHERE pl.regionid = (
-    SELECT regionid FROM region WHERE nombre = 'Aragón'
+    SELECT regionid FROM region WHERE nombre = 'Aragon'
 )
   AND f.fecha_emision >= '2025-01-01'
   AND f.fecha_emision <  '2026-01-01'
@@ -236,8 +253,8 @@ ORDER BY mes;
 
     system_content = (
         "Eres un experto en SQL para PostgreSQL. "
-        "Tu trabajo es convertir preguntas en español sobre datos de negocio "
-        "en UNA única sentencia SQL válida. "
+        "Tu trabajo es convertir preguntas en espanol sobre datos de negocio "
+        "en UNA unica sentencia SQL valida. "
         "Nunca ejecutes nada, solo genera la consulta."
     )
 
@@ -247,14 +264,14 @@ ORDER BY mes;
         "- Prohibido usar INSERT, UPDATE, DELETE, CREATE, DROP, ALTER, TRUNCATE, GRANT, REVOKE, EXEC, CALL.\n"
         "- Usa exclusivamente las tablas y columnas listadas en el esquema.\n"
         "- No inventes nombres de tablas ni de columnas.\n"
-        "- Si esperas muchas filas de detalle, puedes añadir un LIMIT razonable.\n"
+        "- Si esperas muchas filas de detalle, puedes anadir un LIMIT razonable.\n"
         f"{extra_rules}\n\n"
         "Esquema disponible:\n"
         f"{schema_text}\n\n"
         "Ejemplos de estilo:\n"
         f"{examples}\n\n"
         f"Pregunta del usuario: {question}\n\n"
-        "Devuelve ÚNICAMENTE la consulta SQL, sin explicaciones alrededor."
+        "Devuelve UNICAMENTE la consulta SQL, sin explicaciones alrededor."
     )
 
     try:
@@ -267,7 +284,7 @@ ORDER BY mes;
             ],
         )
     except Exception as e:
-        print(f"[ERROR OpenAI SQL] {e}")
+        logger.error("[ERROR OpenAI SQL] %s", e)
         return ""
 
     raw = resp.choices[0].message.content or ""
@@ -276,7 +293,7 @@ ORDER BY mes;
     if not sql:
         return ""
 
-    # Validación básica: debe empezar por SELECT, WITH o "("
+    # Validacion basica: debe empezar por SELECT, WITH o "("
     if not re.match(r"^\s*(SELECT|WITH|\()", sql, flags=re.I):
         m = re.search(r"(WITH\b.*|SELECT\b.*)", raw, flags=re.I | re.S)
         if m:
@@ -295,7 +312,7 @@ ORDER BY mes;
         else:
             return ""
 
-    # Añadimos LIMIT solo si procede
+    # Anadimos LIMIT solo si procede
     sql = _ensure_limit(sql, default_limit=default_limit)
 
     return sql
@@ -322,8 +339,8 @@ def repair_sql_query(question: str, schema: pd.DataFrame, bad_sql: str, error_me
         f"Esquema disponible (tablas y columnas):\n{schema_text}\n\n"
         f"Consulta SQL que ha fallado:\n{bad_sql}\n\n"
         f"Mensaje de error devuelto por la base de datos:\n{error_message}\n\n"
-        "Corrige la consulta para que sea sintácticamente válida en PostgreSQL y coherente con la pregunta. "
-        "Devuelve ÚNICAMENTE la nueva consulta SQL corregida, sin explicaciones alrededor."
+        "Corrige la consulta para que sea sintacticamente valida en PostgreSQL y coherente con la pregunta. "
+        "Devuelve UNICAMENTE la nueva consulta SQL corregida, sin explicaciones alrededor."
     )
 
     try:
@@ -339,7 +356,7 @@ def repair_sql_query(question: str, schema: pd.DataFrame, bad_sql: str, error_me
         sql = _extract_sql_only(raw).strip()
         return sql
     except Exception as e:
-        print(f"[ERROR OpenAI SQL REPAIR] {e}")
+        logger.error("[ERROR OpenAI SQL REPAIR] %s", e)
         return ""
 
 
@@ -359,16 +376,16 @@ def generate_response(question: str, df: pd.DataFrame | None, sql_query: str | N
     else:
         # Nos quedamos con una vista muy resumida
         sample = df.head(10)
-        context_rows = f"Primeras filas del resultado (máx 10):\n{sample.to_markdown(index=False)}"
+        context_rows = f"Primeras filas del resultado (max 10):\n{sample.to_markdown(index=False)}"
 
     user_content = (
         f"Pregunta original del usuario:\n{question}\n\n"
         f"Consulta SQL ejecutada:\n{sql_query or '(no disponible)'}\n\n"
-        f"Descripción del resultado:\n{context_rows}\n\n"
-        "Redacta una respuesta breve en español (2–4 frases), "
-        "explicando qué información se ha obtenido y cualquier aspecto relevante "
+        f"Descripcion del resultado:\n{context_rows}\n\n"
+        "Redacta una respuesta breve en espanol (2-4 frases), "
+        "explicando que informacion se ha obtenido y cualquier aspecto relevante "
         "(por ejemplo, si no hay resultados, si parece que faltan datos, etc.). "
-        "No incluyas la consulta SQL en la respuesta, solo una explicación amigable."
+        "No incluyas la consulta SQL en la respuesta, solo una explicacion amigable."
     )
 
     try:
@@ -380,7 +397,7 @@ def generate_response(question: str, df: pd.DataFrame | None, sql_query: str | N
                     "role": "system",
                     "content": (
                         "Eres un analista de negocio que explica resultados de consultas SQL "
-                        "a usuarios no técnicos. Sé claro, directo y sin relleno."
+                        "a usuarios no tecnicos. Se claro, directo y sin relleno."
                     ),
                 },
                 {"role": "user", "content": user_content},
@@ -388,17 +405,17 @@ def generate_response(question: str, df: pd.DataFrame | None, sql_query: str | N
         )
         return resp.choices[0].message.content.strip()
     except Exception as e:
-        print(f"[ERROR OpenAI SUMMARY] {e}")
+        logger.error("[ERROR OpenAI SUMMARY] %s", e)
         # Fallback simple
         if df is None:
             return "No he podido ejecutar la consulta ni analizar los resultados."
         if df.empty:
             return "La consulta se ha ejecutado correctamente, pero no hay datos que mostrar."
-        return "He ejecutado la consulta y se han obtenido resultados. Revisa la tabla y los gráficos para más detalle."
+        return "He ejecutado la consulta y se han obtenido resultados. Revisa la tabla y los graficos para mas detalle."
 
 
 # ============================================================
-# Análisis enriquecido de resultados (KPIs, tendencias...)
+# Analisis enriquecido de resultados (KPIs, tendencias...)
 # ============================================================
 
 def _detect_temporal_column(df: pd.DataFrame) -> str | None:
@@ -414,10 +431,10 @@ def _detect_temporal_column(df: pd.DataFrame) -> str | None:
 
 def synthesize_metrics(df: pd.DataFrame) -> dict:
     """
-    Extrae métricas básicas para apoyar el análisis automático:
-    - columnas numéricas
+    Extrae metricas basicas para apoyar el analisis automatico:
+    - columnas numericas
     - columna temporal (si hay)
-    - agregados principales sobre la COLUMNA DE NEGOCIO más relevante
+    - agregados principales sobre la COLUMNA DE NEGOCIO mas relevante
     """
     if df is None or df.empty:
         return {"error": "no_data"}
@@ -428,7 +445,7 @@ def synthesize_metrics(df: pd.DataFrame) -> dict:
     temporal_col = _detect_temporal_column(df)
     metrics["temporal_col"] = temporal_col
 
-    # Detectar columnas numéricas (con intento de conversión)
+    # Detectar columnas numericas (con intento de conversion)
     numeric_cols: list[str] = []
     for c in df.columns:
         serie = df[c]
@@ -437,7 +454,7 @@ def synthesize_metrics(df: pd.DataFrame) -> dict:
             numeric_cols.append(c)
             continue
 
-        # Intento de conversión, por si viene como texto "123,45"
+        # Intento de conversion, por si viene como texto "123,45"
         converted = pd.to_numeric(serie, errors="coerce")
         if not converted.isna().all():
             df[c] = converted
@@ -448,10 +465,9 @@ def synthesize_metrics(df: pd.DataFrame) -> dict:
     if not numeric_cols:
         return metrics
 
-    # 🔍 Elegir la "columna principal" de negocio:
-    #    priorizamos columnas cuyo nombre sugiera importe / facturación / ventas
+    # Elegir la "columna principal" de negocio: priorizamos nombres de importe / facturacion
     prefer_patterns = [
-        "factur",     # total_facturado, facturaconiva...
+        "factur",
         "importe",
         "total",
         "venta",
@@ -470,7 +486,7 @@ def synthesize_metrics(df: pd.DataFrame) -> dict:
 
     metrics["main_numeric_col"] = main_col
 
-    # A partir de aquí, todas las métricas se calculan sobre la columna principal
+    # A partir de aqui, todas las metricas se calculan sobre la columna principal
     serie = df[main_col].dropna().astype(float)
     if serie.empty:
         return metrics
@@ -482,7 +498,7 @@ def synthesize_metrics(df: pd.DataFrame) -> dict:
     metrics["max"] = float(serie.max())
     metrics["std"] = float(serie.std()) if serie.count() > 1 else 0.0
 
-    # Último valor / variación ordenando por fecha si hay columna temporal
+    # Ultimo valor / variacion ordenando por fecha si hay columna temporal
     if temporal_col and temporal_col in df.columns:
         df_sorted = df.sort_values(temporal_col)
         serie_sorted = df_sorted[main_col].dropna().astype(float)
@@ -495,7 +511,7 @@ def synthesize_metrics(df: pd.DataFrame) -> dict:
         metrics["prev_value"] = float(serie_sorted.iloc[-2])
         metrics["delta"] = float(serie_sorted.iloc[-1] - serie_sorted.iloc[-2])
 
-    # Outliers simples (±2 std)
+    # Outliers simples (+-2 std)
     if metrics.get("std", 0) > 0:
         mean = metrics["mean"]
         std = metrics["std"]
@@ -530,59 +546,59 @@ def synthesize_metrics(df: pd.DataFrame) -> dict:
 
 def generate_analysis_response(question: str, sql_result: pd.DataFrame) -> str:
     """
-    Genera un análisis en 3 bloques para dirección / área comercial:
+    Genera un analisis en 3 bloques para direccion / area comercial:
 
-    1. Resumen ejecutivo (máx. 5 líneas).
-    2. Qué nos dicen los datos (lectura comercial).
-    3. Qué haría ahora mismo (acciones recomendadas).
+    1. Resumen ejecutivo (max. 5 lineas).
+    2. Que nos dicen los datos (lectura comercial).
+    3. Que haria ahora mismo (acciones recomendadas).
     """
     if sql_result is None or sql_result.empty:
         return "No hay datos para analizar."
 
-    # Métricas técnicas de apoyo (no se muestran tal cual, solo para el modelo)
+    # Metricas tecnicas de apoyo (no se muestran tal cual, solo para el modelo)
     metrics = synthesize_metrics(sql_result)
     head_limited = sql_result.head(50).to_string(index=False)
 
     prompt = (
-        "Actúa como analista de datos senior en un contexto de negocio.\n"
-        "Te paso la pregunta del usuario, un conjunto de métricas calculadas y una "
+        "Actua como analista de datos senior en un contexto de negocio.\n"
+        "Te paso la pregunta del usuario, un conjunto de metricas calculadas y una "
         "muestra de los datos (hasta 50 filas).\n\n"
-        "Tu audiencia son el CEO y la dirección comercial de la empresa.\n\n"
-        "FORMATO DE RESPUESTA (respétalo estrictamente):\n"
-        "1. 'Resumen ejecutivo:'. Un único párrafo de como máximo 5 líneas, "
-        "explicando en lenguaje sencillo qué está pasando y cuál es la idea clave.\n"
-        "2. 'Qué nos dicen los datos:'. Uno o dos párrafos donde expliques la lectura "
-        "comercial: concentración de clientes/productos, evolución a lo largo del tiempo, "
-        "patrones relevantes, riesgos y oportunidades. Evita tecnicismos estadísticos.\n"
-        "3. 'Qué haría ahora mismo:'. Una lista numerada de 3 a 5 acciones concretas "
-        "que se puedan tomar (revisar condiciones con un cliente, lanzar campaña, "
-        "pedir más detalle, crear cuadro de mando, etc.).\n\n"
+        "Tu audiencia son el CEO y la direccion comercial de la empresa.\n\n"
+        "FORMATO DE RESPUESTA (respetalo estrictamente):\n"
+        "1. 'Resumen ejecutivo:'. Un unico parrafo de como maximo 5 lineas, "
+        "explicando en lenguaje sencillo que esta pasando y cual es la idea clave.\n"
+        "2. 'Que nos dicen los datos:'. Uno o dos parrafos donde expliques la lectura "
+        "comercial: concentracion de clientes/productos, evolucion a lo largo del tiempo, "
+        "patrones relevantes, riesgos y oportunidades. Evita tecnicismos estadisticos.\n"
+        "3. 'Que haria ahora mismo:'. Una lista numerada de 3 a 5 acciones concretas "
+        "que se puedan tomar (revisar condiciones con un cliente, lanzar campana, "
+        "pedir mas detalle, crear cuadro de mando, etc.).\n\n"
         "Instrucciones importantes:\n"
         "- No repitas toda la tabla ni enumeres fila por fila.\n"
         "- No hables de formatos internos (nanosegundos, tipos de dato, etc.).\n"
-        "- Evita términos muy técnicos de estadística salvo que aporten algo claro al negocio.\n"
+        "- Evita terminos muy tecnicos de estadistica salvo que aporten algo claro al negocio.\n"
         "- No comentes ni saques conclusiones a partir de columnas que sean identificadores "
-        "(id, código, clienteid, pedidoid, etc.). Solo úsalas si necesitas mencionar un cliente "
-        "o código concreto como ejemplo.\n"
-        "- Cuando menciones cantidades numéricas de dinero, usa SIEMPRE el formato europeo "
-        "con punto para miles y coma para decimales (por ejemplo, 428.969,73) y añade el símbolo € cuando proceda.\n"
-        "- Cuando hables de unidades o recuentos (número de libros vendidos, número de clientes, "
-        "número de pedidos, etc.), escríbelos como enteros sin decimales (por ejemplo, 125 libros, 8 clientes).\n"
-        "- Redacta siempre en español de España, con tono ejecutivo pero cercano.\n\n"
+        "(id, codigo, clienteid, pedidoid, etc.). Solo usalas si necesitas mencionar un cliente "
+        "o codigo concreto como ejemplo.\n"
+        "- Cuando menciones cantidades de dinero, usa el formato europeo con punto para miles y "
+        "coma para decimales (por ejemplo, 428.969,73) y anade el simbolo EUR cuando proceda.\n"
+        "- Cuando hables de unidades o recuentos (numero de libros vendidos, numero de clientes, "
+        "numero de pedidos, etc.), escribelos como enteros sin decimales (por ejemplo, 125 libros, 8 clientes).\n"
+        "- Redacta siempre en espanol de Espana, con tono ejecutivo pero cercano.\n\n"
         f"Pregunta del usuario:\n{question}\n\n"
-        f"Métricas (JSON):\n{metrics}\n\n"
+        f"Metricas (JSON):\n{metrics}\n\n"
         f"Muestra de datos (hasta 50 filas):\n{head_limited}\n"
     )
 
     try:
         resp = client.chat.completions.create(
-            model="gpt-4o",
+            model=ANALYSIS_MODEL,
             temperature=0.2,
             messages=[
                 {
                     "role": "system",
                     "content": (
-                        "Eres un analista de negocio experto. Sé conciso, práctico, "
+                        "Eres un analista de negocio experto. Se conciso, practico, "
                         "orientado a decisiones y respeta exactamente el formato pedido."
                     ),
                 },
@@ -593,8 +609,8 @@ def generate_analysis_response(question: str, sql_result: pd.DataFrame) -> str:
         return resp.choices[0].message.content.strip()
 
     except Exception as e:
-        print(f"[ERROR OpenAI ANALYSIS] {e}")
+        logger.error("[ERROR OpenAI ANALYSIS] %s", e)
         return (
-            "No he podido generar el análisis automático en este momento, "
-            "pero puedes revisar las tablas y gráficos para extraer tus propias conclusiones."
+            "No he podido generar el analisis automatico en este momento, "
+            "pero puedes revisar las tablas y graficos para extraer tus propias conclusiones."
         )
