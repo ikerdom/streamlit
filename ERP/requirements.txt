@@ -7,7 +7,6 @@ numpy==2.0.2
 supabase==2.4.0   # SDK unificado
 postgrest==0.13.0 # compatible
 gotrue==2.4.3
-realtime==2.0.2
 httpx==0.28.1
 
 # === BASE DE DATOS / SQL ===
