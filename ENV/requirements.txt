@@ -7,13 +7,9 @@ email-validator==2.2.0
 streamlit-calendar==1.4.0
 
 # === SUPABASE (VERSION ESTABLE + COMPLETA) ===
-supabase==2.4.0   # SDK unificado
+supabase==2.4.0
 httpx==0.25.2
 gotrue==2.8.1
-
-# === BASE DE DATOS / SQL ===
-SQLAlchemy==2.0.25
-psycopg2-binary==2.9.9
 
 # === BACKEND ===
 fastapi==0.110.0
