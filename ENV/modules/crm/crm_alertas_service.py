@@ -20,6 +20,15 @@ def get_alertas_trabajador(supa, trabajadorid: int) -> dict:
     hoy = date.today()
     maniana = hoy + timedelta(days=1)
     sem = hoy + timedelta(days=7)
+    estado_id = _estado_id(supa, "Pendiente")
+    if not estado_id:
+        return {
+            "total": 0,
+            "criticas": [],
+            "hoy": [],
+            "proximas": [],
+            "seguimiento": [],
+        }
 
     # --------------------------------------------------
     # 🔴 CRÍTICAS = vencidas + seguimiento vencido
@@ -28,12 +37,12 @@ def get_alertas_trabajador(supa, trabajadorid: int) -> dict:
         criticas = (
             supa.table("crm_actuacion")
             .select(
-                "crm_actuacionid, clienteid, estado, fecha_vencimiento, "
+                "crm_actuacionid, clienteid, crm_actuacion_estado(estado), fecha_vencimiento, "
                 "fecha_accion, titulo, resultado, requiere_seguimiento, fecha_recordatorio, "
-                "cliente (clienteid, razon_social)"
+                "cliente (clienteid, razonsocial, nombre)"
             )
-            .eq("trabajadorid", trabajadorid)
-            .eq("estado", "Pendiente")
+            .eq("trabajador_asignadoid", trabajadorid)
+            .eq("crm_actuacion_estadoid", estado_id)
             .or_(
                 f"fecha_vencimiento.lt.{hoy.isoformat()},"
                 f"and(requiere_seguimiento.eq.true,fecha_recordatorio.lt.{hoy.isoformat()})"
@@ -54,12 +63,12 @@ def get_alertas_trabajador(supa, trabajadorid: int) -> dict:
         hoy_list = (
             supa.table("crm_actuacion")
             .select(
-                "crm_actuacionid, clienteid, estado, fecha_vencimiento, "
+                "crm_actuacionid, clienteid, crm_actuacion_estado(estado), fecha_vencimiento, "
                 "fecha_accion, titulo, resultado, requiere_seguimiento, fecha_recordatorio, "
-                "cliente (clienteid, razon_social)"
+                "cliente (clienteid, razonsocial, nombre)"
             )
-            .eq("trabajadorid", trabajadorid)
-            .eq("estado", "Pendiente")
+            .eq("trabajador_asignadoid", trabajadorid)
+            .eq("crm_actuacion_estadoid", estado_id)
             .or_(
                 f"fecha_vencimiento.eq.{hoy.isoformat()},"
                 f"fecha_recordatorio.eq.{hoy.isoformat()}"
@@ -80,12 +89,12 @@ def get_alertas_trabajador(supa, trabajadorid: int) -> dict:
         proximas = (
             supa.table("crm_actuacion")
             .select(
-                "crm_actuacionid, clienteid, estado, fecha_vencimiento, "
+                "crm_actuacionid, clienteid, crm_actuacion_estado(estado), fecha_vencimiento, "
                 "fecha_accion, titulo, resultado, requiere_seguimiento, fecha_recordatorio, "
-                "cliente (clienteid, razon_social)"
+                "cliente (clienteid, razonsocial, nombre)"
             )
-            .eq("trabajadorid", trabajadorid)
-            .eq("estado", "Pendiente")
+            .eq("trabajador_asignadoid", trabajadorid)
+            .eq("crm_actuacion_estadoid", estado_id)
             .gte("fecha_vencimiento", maniana.isoformat())
             .lte("fecha_vencimiento", sem.isoformat())
             .order("fecha_vencimiento")
@@ -104,12 +113,12 @@ def get_alertas_trabajador(supa, trabajadorid: int) -> dict:
         seguimiento = (
             supa.table("crm_actuacion")
             .select(
-                "crm_actuacionid, clienteid, estado, fecha_vencimiento, "
+                "crm_actuacionid, clienteid, crm_actuacion_estado(estado), fecha_vencimiento, "
                 "fecha_accion, titulo, resultado, requiere_seguimiento, fecha_recordatorio, "
-                "cliente (clienteid, razon_social)"
+                "cliente (clienteid, razonsocial, nombre)"
             )
-            .eq("trabajadorid", trabajadorid)
-            .eq("estado", "Pendiente")
+            .eq("trabajador_asignadoid", trabajadorid)
+            .eq("crm_actuacion_estadoid", estado_id)
             .eq("requiere_seguimiento", True)
             .order("fecha_recordatorio")
             .limit(100)
@@ -146,15 +155,16 @@ def get_alertas_globales(supa) -> dict:
     hoy = date.today()
 
     try:
+        estado_id = _estado_id(supa, "Pendiente")
         criticas = (
             supa.table("crm_actuacion")
             .select(
-                "crm_actuacionid, clienteid, trabajadorid, estado, fecha_vencimiento, "
+                "crm_actuacionid, clienteid, trabajador_asignadoid, crm_actuacion_estado(estado), fecha_vencimiento, "
                 "fecha_accion, titulo, resultado, requiere_seguimiento, fecha_recordatorio, "
-                "cliente (clienteid, razon_social), "
-                "trabajador!crm_actuacion_trabajadorid_fkey (trabajadorid, nombre, apellidos)"
+                "cliente (clienteid, razonsocial, nombre), "
+                "trabajador!crm_actuacion_trabajador_asignadoid_fkey (trabajadorid, nombre, apellidos)"
             )
-            .eq("estado", "Pendiente")
+            .eq("crm_actuacion_estadoid", estado_id)
             .or_(
                 f"fecha_vencimiento.lt.{hoy.isoformat()},"
                 f"and(requiere_seguimiento.eq.true,fecha_recordatorio.lt.{hoy.isoformat()})"
@@ -197,7 +207,7 @@ def get_alertas_usuario(supa, trabajadorid: int):
 
     # -------- CRÍTICAS --------
     for a in data.get("criticas", []):
-        cli = a.get("cliente", {}).get("razon_social", "Cliente")
+        cli = a.get("cliente", {}).get("razonsocial") or a.get("cliente", {}).get("nombre", "Cliente")
         fecha = a.get("fecha_vencimiento") or "—"
 
         alertas.append({
@@ -209,7 +219,7 @@ def get_alertas_usuario(supa, trabajadorid: int):
 
     # -------- HOY --------
     for a in data.get("hoy", []):
-        cli = a.get("cliente", {}).get("razon_social", "Cliente")
+        cli = a.get("cliente", {}).get("razonsocial") or a.get("cliente", {}).get("nombre", "Cliente")
         alertas.append({
             "titulo": a.get("titulo") or "Actuación para hoy",
             "mensaje": f"{cli} — vence hoy",
@@ -219,7 +229,7 @@ def get_alertas_usuario(supa, trabajadorid: int):
 
     # -------- PRÓXIMAS --------
     for a in data.get("proximas", []):
-        cli = a.get("cliente", {}).get("razon_social", "Cliente")
+        cli = a.get("cliente", {}).get("razonsocial") or a.get("cliente", {}).get("nombre", "Cliente")
         fecha = a.get("fecha_vencimiento") or "—"
         alertas.append({
             "titulo": a.get("titulo") or "Próxima actuación",
@@ -240,10 +250,11 @@ def get_resumen_global(supa):
 
     # Contadores seguros (Supabase count)
     try:
+        estado_id = _estado_id(supa, "Pendiente")
         tot = (
             supa.table("crm_actuacion")
             .select("crm_actuacionid", count="exact")
-            .eq("estado", "Pendiente")
+            .eq("crm_actuacion_estadoid", estado_id)
             .execute()
             .count
             or 0
@@ -255,7 +266,7 @@ def get_resumen_global(supa):
         hoy_ct = (
             supa.table("crm_actuacion")
             .select("crm_actuacionid", count="exact")
-            .eq("estado", "Pendiente")
+            .eq("crm_actuacion_estadoid", estado_id)
             .eq("fecha_vencimiento", hoy.isoformat())
             .execute()
             .count
@@ -268,7 +279,7 @@ def get_resumen_global(supa):
         venc = (
             supa.table("crm_actuacion")
             .select("crm_actuacionid", count="exact")
-            .eq("estado", "Pendiente")
+            .eq("crm_actuacion_estadoid", estado_id)
             .lt("fecha_vencimiento", hoy.isoformat())
             .execute()
             .count
@@ -285,3 +296,18 @@ def get_resumen_global(supa):
         "vencidas": venc,
         "alta": alta,
     }
+
+
+def _estado_id(supa, nombre: str):
+    try:
+        row = (
+            supa.table("crm_actuacion_estado")
+            .select("crm_actuacion_estadoid")
+            .eq("estado", nombre)
+            .single()
+            .execute()
+            .data
+        )
+    except Exception:
+        row = None
+    return row.get("crm_actuacion_estadoid") if row else None

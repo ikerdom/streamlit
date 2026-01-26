@@ -10,7 +10,7 @@ import sys
 from dotenv import dotenv_values
 from datetime import date
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(override=True)
 
 # API base para servicios FastAPI (tolerante si no hay secrets.toml)
 try:
@@ -41,15 +41,15 @@ def launch_dataquerybot():
     env = os.environ.copy()  # heredamos PATH y resto de variables base
 
     # --------------------------------------------------------
-    # 🔥 SUPABASE_URL (obligatoria)
+    # 🔥 URL_SUPABASE (obligatoria)
     # --------------------------------------------------------
     # Preferimos la del .env interno del bot para no depender del host
-    supa_url = fallback_env.get("SUPABASE_URL") or os.getenv("SUPABASE_URL")
+    supa_url = fallback_env.get("URL_SUPABASE") or os.getenv("URL_SUPABASE")
     if not supa_url:
-        st.error("❌ Falta SUPABASE_URL en tu archivo .env (nivel ERP)")
+        st.error("❌ Falta URL_SUPABASE en tu archivo .env (nivel ERP)")
         return
 
-    env["SUPABASE_URL"] = supa_url.strip()
+    env["URL_SUPABASE"] = supa_url.strip()
 
     # --------------------------------------------------------
     # 🔥 OPENAI_API_KEY (obligatoria)
@@ -83,6 +83,17 @@ def launch_dataquerybot():
         "--server.address",
         "localhost",
     ]
+    rol_usuario = (st.session_state.get("rol_usuario") or "").strip().lower()
+    if rol_usuario == "lector":
+        menu_principal = [
+            m
+            for m in menu_principal
+            if not (
+                "presupuesto" in m.lower()
+                or "pedido" in m.lower()
+                or "devoluci" in m.lower()
+            )
+        ]
     proc = subprocess.Popen(
         cmd,
         cwd=ruta_bot,
@@ -141,7 +152,6 @@ from modules.diagramas import render_diagramas
 from modules.cliente_lista import render_cliente_lista
 from modules.cliente_potencial_lista import render_cliente_potencial_lista
 from modules.producto_lista import render_producto_lista
-from modules.pedido_lista import render_pedido_lista
 from modules.presupuesto_lista import render_presupuesto_lista
 from modules.crm_acciones import render_crm_acciones
 from modules.historial import render_historial
@@ -149,13 +159,9 @@ from modules.lead_form import render_lead_form
 from modules.impuesto_lista import render_impuesto_lista
 from modules.tarifa_admin import render_tarifa_admin
 from modules.incidencia_lista import render_incidencia_lista
+from modules.otros import render_otros
 
 # Campañas
-from modules.campania.campania_lista import render as render_campania_lista
-from modules.campania.campania_form import render as render_campania_form
-from modules.campania.campania_progreso import render as render_campania_progreso
-from modules.campania.campania_detalle import render as render_campania_detalle
-from modules.campania.campania_informes import render as render_campania_informes
 from modules.campania.campania_router import render_campania_router
 from modules.ai_querybot.ai_page import render_ai_page
 
@@ -204,43 +210,57 @@ tipo_usuario = st.session_state.get("tipo_usuario")
 if tipo_usuario == "trabajador":
     menu_principal = [
         "📊 Panel general",
-        "👥 Gestión de clientes",
-        "🧾 Gestión de potenciales",
-        "📦 Gestión de productos",
-        "💼 Gestión de presupuestos",
-        "🧮 Gestión de pedidos",
-        "🔁 Devoluciones",
-        "🧾 Impuestos",
-        "🏷️ Gestión de tarifas",
+        "👥 Catalogo de clientes",
+        "🧾 Clientes potenciales",
+        "📦 Catalogo de productos",
+        "💼 Gestion de presupuestos",
+        "🏷️ Gestion de tarifas",
         "🗓️ Calendario CRM",
-        "📣 Campañas",
-        "💬 Historial / Comunicación",
+        "📣 Campanas",
+        "💬 Historial / Comunicacion",
         "⚠️ Incidencias",
-        "📈 Diagramas y métricas",
-        "🤖 IA · Consultas inteligentes",
-        "🚪 Cerrar sesión",
+        "🧩 Otros",
+        "🤖 IA / Consultas inteligentes",
+        "🚪 Cerrar sesion",
     ]
 
 elif tipo_usuario == "cliente":
     menu_principal = [
-        "👥 Mis datos / Clientes",
+        "👥 Catalogo de clientes",
         "💬 Historial de contacto",
         "🗓️ Acciones / Calendario",
-        "🚪 Cerrar sesión",
+        "🧩 Otros",
+        "🚪 Cerrar sesion",
     ]
 
 else:
-    menu_principal = ["🔐 Iniciar sesión"]
+    menu_principal = [
+        "🔐 Iniciar sesion"
+    ]
 
-opcion = st.sidebar.radio("Selecciona módulo:", menu_principal, key="menu_principal")
+if st.session_state.get("menu_principal") not in menu_principal:
+    st.session_state["menu_principal"] = menu_principal[0] if menu_principal else None
+
+opcion = st.sidebar.radio("Selecciona modulo:", menu_principal, key="menu_principal")
+
+rol_usuario = (st.session_state.get("rol_usuario") or "").strip().lower()
+if rol_usuario == "lector" and (
+    "presupuesto" in opcion.lower()
+    or "pedido" in opcion.lower()
+    or "devoluci" in opcion.lower()
+):
+    st.warning("Tu rol no tiene acceso a este módulo.")
+    st.stop()
 
 # ======================================================
-# 📦 ROUTER PRINCIPAL
 # ======================================================
-if opcion == "🔐 Iniciar sesión":
+# ======================================================
+# ROUTER PRINCIPAL
+# ======================================================
+if opcion == "🔐 Iniciar sesion":
     render_login()
 
-elif opcion == "🚪 Cerrar sesión":
+elif opcion == "🚪 Cerrar sesion":
     for key in [
         "cliente_actual", "cliente_creado", "user_email", "user_nombre",
         "tipo_usuario", "rol_usuario", "trabajadorid",
@@ -248,7 +268,7 @@ elif opcion == "🚪 Cerrar sesión":
     ]:
         st.session_state.pop(key, None)
 
-    st.success("✅ Sesión cerrada correctamente.")
+    st.success("Sesion cerrada correctamente.")
     st.rerun()
 
 elif opcion == "📊 Panel general":
@@ -256,78 +276,57 @@ elif opcion == "📊 Panel general":
         from modules.dashboard_general import render_dashboard
         render_dashboard(supabase)
     except Exception as e:
-        st.warning(f"⚠️ No se pudo cargar el dashboard general: {e}")
+        st.warning(f"No se pudo cargar el dashboard general: {e}")
 
-elif opcion == "👥 Gestión de clientes":
-    st.sidebar.subheader("👥 Gestión de clientes")
+elif opcion == "👥 Catalogo de clientes":
+    st.sidebar.subheader("👥 Catalogo de clientes")
     render_cliente_lista(API_URL)
 
-elif opcion == "🧾 Gestión de potenciales":
+elif opcion == "🧾 Clientes potenciales":
     st.sidebar.subheader("🧾 Clientes potenciales / Leads")
     render_cliente_potencial_lista()
 
-elif opcion == "📦 Gestión de productos":
-    st.sidebar.subheader("📦 Catálogo de productos")
+elif opcion == "📦 Catalogo de productos":
+    st.sidebar.subheader("📦 Catalogo de productos")
     render_producto_lista(supabase)
 
-elif opcion == "💼 Gestión de presupuestos":
-    st.sidebar.subheader("💼 Gestión de presupuestos")
+elif opcion == "💼 Gestion de presupuestos":
+    st.sidebar.subheader("💼 Gestion de presupuestos")
     render_presupuesto_lista(API_URL)
 
-elif opcion == "🧮 Gestión de pedidos":
-    st.sidebar.subheader("🧮 Pedidos y facturación")
-    st.session_state["pedido_tipo_filtro"] = None
-    st.session_state["modo_incidencias"] = False
-    render_pedido_lista(None)
-
-elif opcion == "🔁 Devoluciones":
-    st.sidebar.subheader("🔁 Pedidos de devolución")
-    st.session_state["pedido_tipo_filtro"] = "Devolución"
-    st.session_state["modo_incidencias"] = False
-    render_pedido_lista(None)
-    st.session_state["pedido_tipo_filtro"] = None
-
-elif opcion == "🧾 Impuestos":
-    st.sidebar.subheader("🧾 Gestión de impuestos")
-    render_impuesto_lista(supabase)
-
-elif opcion == "🏷️ Gestión de tarifas":
-    st.sidebar.subheader("🏷️ Administración de tarifas")
+elif opcion == "🏷️ Gestion de tarifas":
+    st.sidebar.subheader("🏷️ Administracion de tarifas")
     render_tarifa_admin()
-
-
-
-elif "IA · Consultas" in opcion:
-    # Toda la UI y el botón están en ai_page.py
-    render_ai_page(launch_dataquerybot)
 
 elif opcion == "🗓️ Calendario CRM":
     st.sidebar.subheader("🗓️ Acciones y calendario")
     render_crm_acciones(supabase)
 
-elif opcion == "📣 Campañas":
-    st.sidebar.subheader("📣 Campañas comerciales")
+elif opcion == "📣 Campanas":
+    st.sidebar.subheader("📣 Campanas comerciales")
     render_campania_router(supabase)
 
-elif opcion == "💬 Historial / Comunicación":
+elif opcion == "💬 Historial / Comunicacion":
     st.sidebar.subheader("💬 Historial de mensajes")
     render_historial(supabase)
 
 elif opcion == "⚠️ Incidencias":
-    st.sidebar.subheader("⚠️ Gestión de incidencias")
+    st.sidebar.subheader("⚠️ Gestion de incidencias")
     try:
         render_incidencia_lista(supabase)
     except Exception as e:
-        st.warning(f"⚠️ No se pudo cargar el módulo de incidencias: {e}")
+        st.warning(f"No se pudo cargar el modulo de incidencias: {e}")
 
-elif opcion == "📈 Diagramas y métricas":
-    render_diagramas()
+elif opcion == "🧩 Otros":
+    st.sidebar.subheader("🧩 Otros")
+    render_otros(supabase)
 
+elif "IA / Consultas" in opcion:
+    render_ai_page(launch_dataquerybot)
 
 elif opcion == "Nuevo lead":
     render_lead_form()
 
-# ======================================================
 # 📋 PIE DE PÁGINA
 # ======================================================
 st.markdown("---")

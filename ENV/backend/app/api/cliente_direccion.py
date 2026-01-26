@@ -53,11 +53,3 @@ def borrar_direccion(
     return {"ok": True}
 
 
-@router.post("/{direccionid}/hacer-fiscal")
-def hacer_fiscal(
-    clienteid: int,
-    direccionid: int,
-    supabase=Depends(get_supabase),
-):
-    ClienteDireccionService(supabase).hacer_fiscal(clienteid, direccionid)
-    return {"ok": True}

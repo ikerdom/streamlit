@@ -21,8 +21,12 @@ class TarifaReglaBase(BaseModel):
     tarifaid: int
     clienteid: Optional[int] = None
     grupoid: Optional[int] = None
+    idgrupo: Optional[int] = None
     productoid: Optional[int] = None
+    catalogo_productoid: Optional[int] = None
     familia_productoid: Optional[int] = None
+    producto_tipoid: Optional[int] = None
+    tarifa_regla_tipoid: Optional[int] = None
     fecha_inicio: Optional[date] = None
     fecha_fin: Optional[date] = None
     prioridad: Optional[int] = None
@@ -32,7 +36,7 @@ class TarifaReglaBase(BaseModel):
     def validar_objetivo(self):
         if not any(
             getattr(self, k)
-            for k in ("clienteid", "grupoid", "productoid", "familia_productoid")
+            for k in ("clienteid", "idgrupo", "grupoid", "catalogo_productoid", "productoid", "familia_productoid")
         ):
             raise ValueError("Debes seleccionar al menos cliente/grupo/producto/familia")
         return self

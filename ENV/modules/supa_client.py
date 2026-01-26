@@ -3,21 +3,26 @@ Supabase client for UI and scripts.
 Credentials loaded from (in order):
 1) Streamlit secrets (if present)
 2) .env in current directory
-3) SUPABASE_URL/SUPABASE_KEY env vars
+3) URL_SUPABASE/SUPABASE_KEY env vars
 """
 from supabase import create_client
 import os
 import streamlit as st
-from dotenv import load_dotenv, dotenv_values
+from pathlib import Path
+
+from dotenv import dotenv_values, load_dotenv
 
 _SUPABASE_CACHED = None
 
 
 def _load_env() -> str:
-    env_path = os.path.join(os.getcwd(), ".env")
-    if os.path.isfile(env_path):
-        load_dotenv(env_path, override=False)
-    return env_path
+    cwd_env = Path(os.getcwd()) / ".env"
+    env_dir_env = Path(__file__).resolve().parents[1] / ".env"
+    env_path = cwd_env if cwd_env.is_file() else env_dir_env
+    if env_path.is_file():
+        # Prioriza el .env local sobre variables del sistema
+        load_dotenv(env_path, override=True)
+    return str(env_path)
 
 
 def _get_creds():
@@ -25,24 +30,51 @@ def _get_creds():
 
     # Try Streamlit secrets first (if available)
     try:
-        url = st.secrets["SUPABASE_URL"]  # type: ignore[attr-defined]
-        key = st.secrets["SUPABASE_KEY"]  # type: ignore[attr-defined]
-        return url, key
+        url = st.secrets.get("URL_SUPABASE")  # type: ignore[attr-defined]
+        key = st.secrets.get("SUPABASE_KEY")  # type: ignore[attr-defined]
+        if url and key:
+            return url, key
     except Exception:
         pass
 
     # Fallback to environment variables
-    url = os.getenv("SUPABASE_URL")
+    url = os.getenv("URL_SUPABASE")
     key = os.getenv("SUPABASE_KEY")
 
     # Fallback to .env values if still missing
     if not url or not key:
         file_vals = dotenv_values(env_path) if os.path.isfile(env_path) else {}
-        url = url or file_vals.get("SUPABASE_URL")
+        url = url or file_vals.get("URL_SUPABASE")
         key = key or file_vals.get("SUPABASE_KEY")
 
     if not url or not key:
-        msg = "Faltan credenciales Supabase. Rellena SUPABASE_URL/SUPABASE_KEY en .env o secrets.toml."
+        msg = "Faltan credenciales Supabase. Rellena URL_SUPABASE/SUPABASE_KEY en .env o secrets.toml."
+        try:
+            st.error(msg)
+            st.stop()
+        except Exception:
+            raise ValueError(msg)
+
+    url = str(url).strip().strip('"').strip("'")
+    key = str(key).strip().strip('"').strip("'")
+
+    if url.startswith("postgresql://"):
+        msg = (
+            "URL_SUPABASE invalida: parece una cadena Postgres. "
+            "Debes usar la URL HTTPS del proyecto (https://xxxx.supabase.co). "
+            f"Valor actual: {url!r}."
+        )
+        try:
+            st.error(msg)
+            st.stop()
+        except Exception:
+            raise ValueError(msg)
+
+    if not url.startswith("http"):
+        msg = (
+            "URL_SUPABASE invalida. Debe empezar por http(s). "
+            f"Valor actual: {url!r}. Revisa .env o secrets.toml."
+        )
         try:
             st.error(msg)
             st.stop()

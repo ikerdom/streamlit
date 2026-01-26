@@ -1,3 +1,4 @@
+from postgrest.exceptions import APIError
 # backend/app/repositories/pedidos_repo.py
 from typing import List, Optional, Tuple
 
@@ -41,8 +42,12 @@ class PedidosRepository:
 
         start = (page - 1) * page_size
         end = start + page_size - 1
-        res = q.order("fecha_pedido", desc=True).range(start, end).execute()
-        return res.data or [], res.count or 0
+        try:
+            res = q.order("fecha_pedido", desc=True).range(start, end).execute()
+        except APIError as e:
+            if getattr(e, "args", None) and isinstance(e.args[0], dict) and e.args[0].get("code") == "PGRST205":
+                return [], 0
+            raise
 
     # -----------------------------
     # Cabecera / detalle

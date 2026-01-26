@@ -62,11 +62,11 @@ def cliente_autocomplete(
         txt = search.strip()
         rows = (
             supabase.table("cliente")
-            .select("clienteid, razon_social, nombre_comercial, cif_nif")
+            .select("clienteid, razonsocial, nombre, cifdni")
             .or_(
-                f"razon_social.ilike.%{txt}%,"
-                f"nombre_comercial.ilike.%{txt}%,"
-                f"cif_nif.ilike.%{txt}%"
+                f"razonsocial.ilike.%{txt}%,"
+                f"nombre.ilike.%{txt}%,"
+                f"cifdni.ilike.%{txt}%"
             )
             .limit(20)
             .execute()
@@ -74,8 +74,8 @@ def cliente_autocomplete(
         )
 
         for c in rows:
-            nombre = c.get("razon_social") or c.get("nombre_comercial") or f"Cliente {c['clienteid']}"
-            cif = c.get("cif_nif") or ""
+            nombre = c.get("razonsocial") or c.get("nombre") or f"Cliente {c['clienteid']}"
+            cif = c.get("cifdni") or ""
             etiqueta = f"{nombre} ({cif})" if cif else nombre
             opciones[etiqueta] = c["clienteid"]
 
@@ -120,11 +120,11 @@ def cargar_clientes_map(supabase, acts):
     try:
         res = (
             supabase.table("cliente")
-            .select("clienteid, razon_social")
+            .select("clienteid, razonsocial")
             .in_("clienteid", ids)
             .execute()
         )
-        return {r["clienteid"]: r["razon_social"] for r in res.data}
+        return {r["clienteid"]: r["razonsocial"] for r in res.data}
     except:
         return {}
 
@@ -144,7 +144,7 @@ def filtrar_por_trabajador(acts, trabajadorid):
     result = []
     for a in acts:
         asignado = a.get("trabajador_asignadoid")
-        creador = a.get("trabajadorid")
+        creador = a.get("trabajador_creadorid") or a.get("trabajadorid")
 
         if asignado == trabajadorid:
             result.append(a)

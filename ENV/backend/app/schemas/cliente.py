@@ -4,41 +4,42 @@ from pydantic import BaseModel
 
 
 # ============================
-# 🏷️ Subschemas reutilizables
-# ============================
-class Label(BaseModel):
-    id: Optional[int]
-    label: Optional[str]
-
-
-class PresupuestoInfo(BaseModel):
-    estado: Optional[str]
-    fecha: Optional[str]
-
-
-# ============================
-# 👤 Cliente (salida API)
+# Cliente (salida API)
 # ============================
 class ClienteOut(BaseModel):
     clienteid: int
 
-    # básicos
-    razon_social: Optional[str]
-    identificador: Optional[str]
+    codigocuenta: Optional[str] = None
+    codigoclienteoproveedor: Optional[str] = None
+    clienteoproveedor: Optional[str] = None
+    razonsocial: Optional[str] = None
+    nombre: Optional[str] = None
+    cifdni: Optional[str] = None
+    cif_normalizado: Optional[str] = None
 
-    # IDs (para acciones)
-    estadoid: Optional[int]
-    grupoid: Optional[int]
-    trabajadorid: Optional[int]
-    formapagoid: Optional[int]
+    viapublica: Optional[str] = None
+    domicilio: Optional[str] = None
+    codigopostal: Optional[str] = None
+    provincia: Optional[str] = None
+    municipio: Optional[str] = None
 
-    # 🧠 enriquecido para UI
-    estado: Optional[Label] = None
-    grupo: Optional[Label] = None
-    comercial: Optional[str] = None
+    telefono: Optional[str] = None
+    telefono2: Optional[str] = None
+    telefono3: Optional[str] = None
+    fax: Optional[str] = None
 
-    # 📦 contexto
-    presupuesto_reciente: Optional[PresupuestoInfo] = None
+    iban: Optional[str] = None
+    codigobanco: Optional[str] = None
+    codigoagencia: Optional[str] = None
+    dc: Optional[str] = None
+    ccc: Optional[str] = None
+
+    codigotipoefecto: Optional[str] = None
+    codigocuentaefecto: Optional[str] = None
+    codigocuentaimpagado: Optional[str] = None
+    remesahabitual: Optional[str] = None
+
+    idgrupo: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -53,36 +54,41 @@ class ClienteListResponse(BaseModel):
 
 
 # ============================
-# ƒsT‹÷? Cliente detalle
+# Cliente detalle
 # ============================
 class ClienteDireccion(BaseModel):
-    tipo: Optional[str] = None
+    clientes_direccionid: Optional[int] = None
+    direccion_origen_id: Optional[int] = None
+    idtercero: Optional[int] = None
+    razonsocial: Optional[str] = None
+    nombrecomercial: Optional[str] = None
+    direccionfiscal: Optional[str] = None
     direccion: Optional[str] = None
-    ciudad: Optional[str] = None
-    provincia: Optional[str] = None
-    pais: Optional[str] = None
-    cp: Optional[str] = None
-    telefono: Optional[str] = None
-    email: Optional[str] = None
-    documentacion_impresa: Optional[str] = None
+    idpais: Optional[str] = None
+    idprovincia: Optional[str] = None
+    idmunicipio: Optional[str] = None
+    codigopostal: Optional[str] = None
+    rci_estado: Optional[str] = None
+    rci_poblacion: Optional[str] = None
+    rci_idterritorio: Optional[str] = None
+    municipio: Optional[str] = None
+    cif: Optional[str] = None
+    referenciacliente: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
 
 
 class ClienteContacto(BaseModel):
-    nombre: Optional[str] = None
-    email: Optional[str] = None
-    telefono: Optional[str] = None
-    rol: Optional[str] = None
-    es_principal: bool = True
-
-
-class ClienteBanco(BaseModel):
-    iban: Optional[str] = None
-    nombre_banco: Optional[str] = None
-    fecha_baja: Optional[str] = None
+    cliente_contactoid: Optional[int] = None
+    clienteid: Optional[int] = None
+    tipo: Optional[str] = None
+    valor: Optional[str] = None
+    valor_norm: Optional[str] = None
+    principal: Optional[bool] = None
 
 
 class ClienteDetalle(BaseModel):
     cliente: ClienteOut
-    direccion_fiscal: Optional[ClienteDireccion] = None
+    direcciones: List[ClienteDireccion] = []
+    contactos: List[ClienteContacto] = []
     contacto_principal: Optional[ClienteContacto] = None
-    banco: Optional[ClienteBanco] = None

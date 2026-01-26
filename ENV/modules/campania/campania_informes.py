@@ -238,13 +238,13 @@ def _fetch_actuaciones_campania(supa, campaniaid: int):
         .select("""
             crm_actuacionid,
             clienteid,
-            trabajadorid,
-            estado,
-            prioridad,
+            trabajador_creadorid,
+            crm_actuacion_estadoid,
             fecha_accion,
             resultado,
-            cliente (clienteid, razon_social),
-            trabajador!crm_actuacion_trabajadorid_fkey (trabajadorid, nombre, apellidos)
+            crm_actuacion_estado (estado),
+            cliente (clienteid, razonsocial, nombre),
+            trabajador!crm_actuacion_trabajador_creadorid_fkey (trabajadorid, nombre, apellidos)
         """)
         .in_("crm_actuacionid", act_ids)
         .execute()
@@ -252,15 +252,16 @@ def _fetch_actuaciones_campania(supa, campaniaid: int):
 
     rows = []
     for a in raw:
+        cliente = a.get("cliente") or {}
+        trabajador = a.get("trabajador") or {}
         rows.append({
             "crm_actuacionid": a["crm_actuacionid"],
             "clienteid": a["clienteid"],
-            "cliente_razon_social": a["cliente"]["razon_social"] if a["cliente"] else "",
-            "trabajadorid": a["trabajadorid"],
-            "trabajador_nombre": a["trabajador"]["nombre"] if a["trabajador"] else "",
-            "trabajador_apellidos": a["trabajador"]["apellidos"] if a["trabajador"] else "",
-            "estado": a["estado"],
-            "prioridad": a["prioridad"],
+            "cliente_razon_social": cliente.get("razonsocial") or cliente.get("nombre", ""),
+            "trabajadorid": a.get("trabajador_creadorid"),
+            "trabajador_nombre": trabajador.get("nombre", ""),
+            "trabajador_apellidos": trabajador.get("apellidos", ""),
+            "estado": (a.get("crm_actuacion_estado") or {}).get("estado", ""),
             "fecha_accion": a["fecha_accion"],
             "resultado": a.get("resultado"),
         })
@@ -273,14 +274,14 @@ def _fetch_por_grupo(supa, campaniaid: int):
 
     sql = f"""
         SELECT 
-            COALESCE(g.nombre, 'Sin grupo') AS grupo,
+            COALESCE(g.grupo_nombre, 'Sin grupo') AS grupo,
             COUNT(a.crm_actuacionid) AS total
         FROM crm_actuacion a
         JOIN cliente c ON c.clienteid = a.clienteid
         JOIN campania_actuacion ca ON ca.actuacionid = a.crm_actuacionid
-        LEFT JOIN grupo g ON g.grupoid = c.grupoid
+        LEFT JOIN grupo g ON g.idgrupo = c.idgrupo
         WHERE ca.campaniaid = {campaniaid}
-        GROUP BY g.nombre
+        GROUP BY g.grupo_nombre
         ORDER BY total DESC;
     """
 

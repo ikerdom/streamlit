@@ -136,13 +136,13 @@ def render_tarifa_lista(supabase):
         st.subheader("⚙️ Promocionar combinación a tarifa superior")
         st.caption("Selecciona un cliente y producto que actualmente usan la **Tarifa General** y promociónalos a otra tarifa activa.")
 
-        clientes = _opts(supabase, "cliente", "clienteid", "razon_social", "razon_social")
+        clientes = _opts(supabase, "cliente", "clienteid", "razonsocial", "razonsocial")
         prods = _opts(supabase, "producto", "productoid", "nombre", "nombre")
         tarifas = _opts(supabase, "tarifa", "tarifaid", "nombre", "tarifaid")
 
         col1, col2, col3 = st.columns([2, 2, 1])
         with col1:
-            cliente_nom = st.selectbox("👤 Cliente", ["(Selecciona)"] + [c["razon_social"] for c in clientes])
+            cliente_nom = st.selectbox("👤 Cliente", ["(Selecciona)"] + [c["razonsocial"] for c in clientes])
         with col2:
             producto_nom = st.selectbox("📦 Producto", ["(Selecciona)"] + [p["nombre"] for p in prods])
         with col3:
@@ -164,7 +164,7 @@ def render_tarifa_lista(supabase):
                 st.warning("⚠️ Selecciona cliente, producto y tarifa destino antes de continuar.")
             else:
                 try:
-                    clienteid = next(c["clienteid"] for c in clientes if c["razon_social"] == cliente_nom)
+                    clienteid = next(c["clienteid"] for c in clientes if c["razonsocial"] == cliente_nom)
                     productoid = next(p["productoid"] for p in prods if p["nombre"] == producto_nom)
                     tarifaid = next(t["tarifaid"] for t in tarifas if t["nombre"] == nueva_tarifa)
 

@@ -57,7 +57,7 @@ def _load_presupuesto(supabase, presupuestoid: int) -> dict:
     res = (
         supabase.table("presupuesto")
         .select("*")
-        .eq("presupuestoid", presupuestoid)
+        .eq("presupuesto_id", presupuestoid)
         .maybe_single()
         .execute()
     )
@@ -70,7 +70,7 @@ def _load_cliente(supabase, clienteid: int) -> dict:
     res = (
         supabase.table("cliente")
         .select("*")
-        .eq("clienteid", clienteid)
+        .eq("idtercero", clienteid)
         .maybe_single()
         .execute()
     )
@@ -107,11 +107,11 @@ def _load_direccion_by_id(supabase, cliente_direccionid: int) -> dict:
     if not cliente_direccionid:
         return {}
     res = (
-        supabase.table("cliente_direccion")
+        supabase.table("clientes_direccion")
         .select(
-            "cliente_direccionid, tipo, direccion, cp, ciudad, provincia, pais, regionid"
+            "clientes_direccionid, direccionfiscal, direccion, codigopostal, municipio, idprovincia, idpais"
         )
-        .eq("cliente_direccionid", cliente_direccionid)
+        .eq("clientes_direccionid", cliente_direccionid)
         .maybe_single()
         .execute()
     )
@@ -122,12 +122,12 @@ def _load_direccion_fiscal(supabase, clienteid: int) -> dict:
     if not clienteid:
         return {}
     res = (
-        supabase.table("cliente_direccion")
+        supabase.table("clientes_direccion")
         .select(
-            "cliente_direccionid, tipo, direccion, cp, ciudad, provincia, pais, regionid"
+            "clientes_direccionid, direccionfiscal, direccion, codigopostal, municipio, idprovincia, idpais"
         )
-        .eq("clienteid", clienteid)
-        .eq("tipo", "fiscal")
+        .eq("idtercero", clienteid)
+        
         .maybe_single()
         .execute()
     )
@@ -138,12 +138,12 @@ def _load_primera_direccion_envio(supabase, clienteid: int) -> dict:
     if not clienteid:
         return {}
     res = (
-        supabase.table("cliente_direccion")
+        supabase.table("clientes_direccion")
         .select(
-            "cliente_direccionid, tipo, direccion, cp, ciudad, provincia, pais, regionid"
+            "clientes_direccionid, direccionfiscal, direccion, codigopostal, municipio, idprovincia, idpais"
         )
-        .eq("clienteid", clienteid)
-        .eq("tipo", "envio")
+        .eq("idtercero", clienteid)
+        
         .order("cliente_direccionid")
         .limit(1)
         .execute()
@@ -158,27 +158,21 @@ def _load_primera_direccion_envio(supabase, clienteid: int) -> dict:
 def _load_lineas_presupuesto(supabase, presupuestoid: int):
     """
     Devuelve:
-      - lista de líneas en formato PDF:
-        {
-          "concepto", "unidades", "precio", "dto",
-          "iva", "base", "total"
-        }
-      - dict totales:
-        {
-          "base", "iva", "total", "desglose": {iva_pct: {"base","iva"}}
-        }
+      - lista de lineas en formato PDF
+      - dict totales
     """
     res = (
-        supabase.table("presupuesto_detalle")
+        supabase.table("presupuesto_linea")
         .select(
-            "presupuesto_detalleid, descripcion, cantidad, precio_unitario, "
-            "descuento_pct, iva_pct, importe_base, importe_total_linea"
+            "presupuesto_linea_id, descripcion, cantidad, precio_unitario, "
+            "descuento_pct, iva_pct, base_linea, iva_importe, total_linea"
         )
-        .eq("presupuestoid", presupuestoid)
-        .order("presupuesto_detalleid")
+        .eq("presupuesto_id", presupuestoid)
+        .order("presupuesto_linea_id")
         .execute()
     )
     lineas_raw = res.data or []
+
 
     lineas_pdf = []
     desglose = {}  # {iva_pct: {"base": x, "iva": y}}
@@ -204,11 +198,11 @@ def _load_lineas_presupuesto(supabase, presupuestoid: int):
         except Exception:
             iva_pct = 0.0
         try:
-            base = float(ln.get("importe_base") or 0)
+            base = float(ln.get("base_linea") or 0)
         except Exception:
             base = cant * precio_unit * (1 - dto_pct / 100.0) if cant and precio_unit else 0.0
         try:
-            total_linea = float(ln.get("importe_total_linea") or 0)
+            total_linea = float(ln.get("total_linea") or 0)
         except Exception:
             total_linea = base * (1 + iva_pct / 100.0)
 

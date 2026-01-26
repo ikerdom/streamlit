@@ -1,256 +1,258 @@
-# ======================================================
-# 🌳 VISTA JERÁRQUICA DE PRODUCTOS — EnteNova Gnosis · ERP Orbe
-# ======================================================
-import os
-import requests
+import math
+from typing import Any, Dict, List, Optional, Tuple
+
 import streamlit as st
-from dataclasses import dataclass, field
-from typing import List, Dict, Any, Optional
 
 from modules.orbe_theme import apply_orbe_theme
 
 
-# ======================================================
-# 📦 MODELO DEL NODO DE CATEGORÍA
-# ======================================================
-@dataclass
-class NodoCategoria:
-    id: int
-    nombre: str
-    tipo: str
-    nivel: int
-    refid: Optional[int] = None
-    padreid: Optional[int] = None
-    hijos: List["NodoCategoria"] = field(default_factory=list)
-
-
-# ======================================================
-# 📥 CARGA DEL ÁRBOL DE CATEGORÍAS  (FIX: _supabase)
-# ======================================================
-@st.cache_data(ttl=300)
-def load_arbol_productos(_supabase) -> List[NodoCategoria]:
-    """
-    Carga la jerarquía de producto_categoria_arbol y devuelve una lista
-    de nodos raíz con hijos conectados.
-    """
+def _price(v: Any) -> str:
     try:
-        res = (
-            _supabase.table("producto_categoria_arbol")
-            .select("categoria_arbolid, nombre, tipo, nivel, padreid, refid, habilitado")
-            .eq("habilitado", True)
-            .order("nivel, nombre")
-            .execute()
-        )
-        rows = res.data or []
-        if not rows:
-            return []
-
-        nodos: Dict[int, NodoCategoria] = {
-            r["categoria_arbolid"]: NodoCategoria(
-                id=r["categoria_arbolid"],
-                nombre=r["nombre"],
-                tipo=r.get("tipo") or "",
-                nivel=r.get("nivel") or 1,
-                padreid=r.get("padreid"),
-                refid=r.get("refid"),
-            )
-            for r in rows
-        }
-
-        # Conectar padres ↔ hijos
-        for nodo in nodos.values():
-            if nodo.padreid and nodo.padreid in nodos:
-                nodos[nodo.padreid].hijos.append(nodo)
-
-        return [n for n in nodos.values() if not n.padreid]
-
-    except Exception as e:
-        st.error(f"❌ Error cargando árbol de categorías: {e}")
-        return []
+        return f"{float(v):.2f} EUR"
+    except Exception:
+        return "-"
 
 
-# ======================================================
-# 💳 TARJETA DE PRODUCTO (compacta)
-# ======================================================
-def _render_producto_card(p: Dict[str, Any]):
-    nombre = p.get("nombre", "(Producto)")
-    portada = p.get("portada_url") or ""
-    precio = p.get("precio_generico")
-    precio_str = f"{float(precio):.2f} €" if isinstance(precio, (int, float)) else "-"
-    pid = p.get("productoid")
-
-    st.markdown(
-        f"""
-        <div style="border:1px solid #e5e7eb;background:#f9fafb;border-radius:8px;
-                    padding:6px 10px;margin-bottom:4px;display:flex;align-items:center;gap:10px;">
-            <div style="width:46px;height:60px;border:1px solid #ddd;border-radius:6px;overflow:hidden;">
-                {'<img src="'+portada+'" style="width:100%;height:100%;object-fit:cover;" />' if portada else '📘'}
-            </div>
-            <div style="flex:1;min-width:0;">
-                <div style="font-weight:600;color:#064e3b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                    {nombre}
-                </div>
-                <div style="opacity:.7;font-size:0.9rem;">💶 {precio_str}</div>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+@st.cache_data(ttl=300)
+def _load_tree_data(_supabase) -> Tuple[List[dict], List[dict], List[dict]]:
+    categorias = (
+        _supabase.table("producto_categoria")
+        .select("producto_categoriaid, nombre, habilitado")
+        .eq("habilitado", True)
+        .order("nombre")
+        .execute()
+        .data
+        or []
     )
 
-    if st.button("Ficha", key=f"arbol_ficha_{pid}", width="stretch"):
+    familias = (
+        _supabase.table("producto_familia")
+        .select("producto_familiaid, nombre, habilitado, categoria_nombre_raw")
+        .eq("habilitado", True)
+        .order("nombre")
+        .execute()
+        .data
+        or []
+    )
+
+    productos = (
+        _supabase.table("producto")
+        .select(
+            "catalogo_productoid, titulo_automatico, idproducto, "
+            "idproductoreferencia, portada_url, pvp, "
+            "producto_categoriaid, producto_familiaid"
+        )
+        .order("titulo_automatico")
+        .execute()
+        .data
+        or []
+    )
+
+    return categorias, familias, productos
+
+
+def _match_any(q: str, *values: Optional[str]) -> bool:
+    if not q:
+        return True
+    ql = q.lower()
+    for v in values:
+        if v and ql in str(v).lower():
+            return True
+    return False
+
+
+def _render_producto_row(p: Dict[str, Any]):
+    titulo = p.get("titulo_automatico") or "(Sin titulo)"
+    ref = p.get("idproductoreferencia") or p.get("idproducto") or "-"
+    pid = p.get("catalogo_productoid")
+    precio = _price(p.get("pvp"))
+    portada = (p.get("portada_url") or "").strip()
+    if portada and not portada.startswith("http"):
+        portada = ""
+
+    c1, c2 = st.columns([1, 4])
+    with c1:
+        if portada:
+            st.image(portada, width=60)
+        else:
+            st.caption("Sin portada")
+    with c2:
+        st.write(titulo)
+        st.caption(f"Ref: {ref} | ID: {pid} | PVP: {precio}")
+
+    if st.button("Ver ficha en catalogo", key=f"tree_ficha_{pid}", use_container_width=True):
+        st.session_state["modo_producto"] = "Catalogo"
+        st.session_state["prod_show_form"] = False
         st.session_state["prod_detalle_id"] = pid
-        st.session_state["_go_catalog"] = True
         st.rerun()
 
 
-# ======================================================
-# 🌳 FUNCIÓN PRINCIPAL — VISTA ÁRBOL
-# ======================================================
 def render_arbol_productos(supabase):
     apply_orbe_theme()
 
-    st.subheader("🌳 Catálogo de productos — Vista Árbol")
-    st.caption("Navega por CATEGORÍAS, luego por FAMILIAS y finalmente por PRODUCTOS.")
+    st.subheader("Catalogo de productos - Vista arbol")
+    st.caption("Navega por categorias y familias. Usa el buscador para filtrar.")
 
-    q_global = st.text_input(
-        "🔎 Buscar categoría o producto",
-        placeholder="Ej: Hosteleria y Turismo, Comercio y Marketing, Celador…"
-    ).strip().lower()
+    q = st.text_input(
+        "Buscar categoria, familia o producto",
+        placeholder="Ej: ciclos formativos, acceso, enfermeria",
+        key="prod_tree_q",
+    ).strip()
 
-    # -----------------------------
-    # CARGA DE DATOS
-    # -----------------------------
+    step_size = st.number_input(
+        "Mostrar por pagina",
+        min_value=5,
+        max_value=50,
+        value=15,
+        step=5,
+    )
+
     try:
-        raices = load_arbol_productos(supabase)
-
-        productos = (
-            supabase.table("producto")
-            .select(
-                "productoid, nombre, categoriaid, familia_productoid, "
-                "precio_generico, portada_url, publico"
-            )
-            .eq("publico", True)
-            .order("nombre")
-            .execute()
-            .data or []
-        )
-
-        familias_rows = (
-            supabase.table("producto_familia")
-            .select("familia_productoid, nombre, habilitado")
-            .eq("habilitado", True)
-            .order("nombre")
-            .execute()
-            .data or []
-        )
-        familias_map = {f["familia_productoid"]: f["nombre"] for f in familias_rows}
-
+        categorias, familias, productos = _load_tree_data(supabase)
     except Exception as e:
-        st.error(f"❌ Error cargando datos del árbol: {e}")
+        st.error(f"Error cargando datos del arbol: {e}")
         return
 
-    if not raices:
-        st.info("📭 No hay categorías registradas.")
+    if not categorias and not productos:
+        st.info("No hay categorias ni productos disponibles.")
         return
 
-    # -----------------------------
-    # HELPERS
-    # -----------------------------
-    def productos_de_categoria(cat_id: int):
-        return [p for p in productos if p.get("categoriaid") == cat_id]
+    cat_name = {c["producto_categoriaid"]: c["nombre"] for c in categorias}
+    fam_name = {f["producto_familiaid"]: f["nombre"] for f in familias}
 
-    def nodo_tiene_match(nodo: NodoCategoria) -> bool:
-        if not q_global:
-            return True
+    productos_por_cat: Dict[Optional[int], List[dict]] = {}
+    for p in productos:
+        cat_id = p.get("producto_categoriaid")
+        productos_por_cat.setdefault(cat_id, []).append(p)
 
-        if q_global in nodo.nombre.lower():
-            return True
+    categorias_ordenadas: List[Tuple[Optional[int], str]] = [
+        (cid, cat_name.get(cid, f"Categoria {cid}"))
+        for cid in sorted(cat_name.keys(), key=lambda k: cat_name.get(k, ""))
+    ]
 
-        for p in productos_de_categoria(nodo.id):
-            if q_global in p.get("nombre", "").lower():
+    if None in productos_por_cat:
+        categorias_ordenadas.append((None, "Sin categoria"))
+
+    for cat_id, cat_label in categorias_ordenadas:
+        prods_cat = productos_por_cat.get(cat_id, [])
+
+        def _cat_match() -> bool:
+            if _match_any(q, cat_label):
                 return True
-
-        return any(nodo_tiene_match(h) for h in nodo.hijos)
-
-    # -----------------------------
-    # RENDER RECURSIVO
-    # -----------------------------
-    def render_nodo(nodo: NodoCategoria):
-        if not nodo_tiene_match(nodo):
-            return
-
-        prods_cat = productos_de_categoria(nodo.id)
-
-        fam_contador = {}
-        for p in prods_cat:
-            fid = p.get("familia_productoid")
-            if fid:
-                fam_contador[fid] = fam_contador.get(fid, 0) + 1
-
-        titulo = f"📂 {nodo.nombre}"
-        if prods_cat:
-            titulo += f" — {len(prods_cat)} producto(s)"
-
-        with st.expander(titulo, expanded=False):
-
-            # ================================
-            # FAMILIAS
-            # ================================
-            if fam_contador:
-                st.markdown("### 📁 Familias en esta categoría")
-
-                for fid, count in sorted(
-                    fam_contador.items(),
-                    key=lambda x: (familias_map.get(x[0], "") or "").lower()
+            for p in prods_cat:
+                if _match_any(
+                    q,
+                    p.get("titulo_automatico"),
+                    p.get("idproducto"),
+                    p.get("idproductoreferencia"),
                 ):
-                    fam_nombre = familias_map.get(fid, f"Familia {fid}")
+                    return True
+                fam_id = p.get("producto_familiaid")
+                if _match_any(q, fam_name.get(fam_id)):
+                    return True
+            return False
 
-                    c1, c2 = st.columns([3, 2])
-                    with c1:
-                        st.write(f"• **{fam_nombre}** ({count} producto(s))")
+        if q and not _cat_match():
+            continue
 
-                    # 🎯 Ver catálogo filtrado por esta familia
-                    with c2:
+        total_cat = len(prods_cat)
+        fams_cat: Dict[Optional[int], List[dict]] = {}
+        for p in prods_cat:
+            fam_id = p.get("producto_familiaid")
+            fams_cat.setdefault(fam_id, []).append(p)
+
+        label = f"{cat_label} ({total_cat})"
+        with st.expander(label, expanded=False):
+            if not fams_cat:
+                st.info("No hay familias para esta categoria.")
+                continue
+
+            fam_items = sorted(
+                fams_cat.items(),
+                key=lambda x: (fam_name.get(x[0]) or "Sin familia"),
+            )
+
+            fam_limit_key = f"tree_fam_limit_{cat_id}"
+            st.session_state.setdefault(fam_limit_key, int(step_size))
+            fam_limit = st.session_state[fam_limit_key]
+
+            for fam_id, fam_products in fam_items[:fam_limit]:
+                fam_label = fam_name.get(fam_id) or "Sin familia"
+                if q and not _match_any(q, fam_label) and all(
+                    not _match_any(
+                        q,
+                        p.get("titulo_automatico"),
+                        p.get("idproducto"),
+                        p.get("idproductoreferencia"),
+                    )
+                    for p in fam_products
+                ):
+                    continue
+
+                fam_title = f"Familia: {fam_label} ({len(fam_products)})"
+                with st.expander(fam_title, expanded=False):
+                    if fam_id:
                         if st.button(
-                            "🎯 Ver catálogo",
-                            key=f"ver_cat_{nodo.id}_{fid}",
-                            width="stretch",
+                            "Ver catalogo filtrado",
+                            key=f"tree_cat_{cat_id}_fam_{fam_id}",
+                            use_container_width=True,
                         ):
-                            st.session_state["_pending_filter_from_tree"] = fam_nombre
-                            st.session_state["_go_catalog"] = True
+                            st.session_state["modo_producto"] = "Catalogo"
+                            st.session_state["prod_show_form"] = False
+                            st.session_state["prod_familia"] = fam_label
+                            st.session_state["prod_page"] = 1
                             st.rerun()
 
-                st.markdown("---")
+                    q_local = st.text_input(
+                        "Buscar productos en esta familia",
+                        key=f"tree_q_{cat_id}_{fam_id}",
+                    ).strip()
 
-            # ================================
-            # PRODUCTOS DE LA CATEGORÍA
-            # ================================
-            if prods_cat:
-                q_local = st.text_input(
-                    "Buscar productos en esta categoría",
-                    key=f"q_cat_{nodo.id}"
-                ).strip().lower()
+                    limit_key = f"tree_limit_{cat_id}_{fam_id}"
+                    st.session_state.setdefault(limit_key, int(step_size))
+                    limit = st.session_state[limit_key]
 
-                for p in prods_cat:
-                    if q_local and q_local not in p.get("nombre", "").lower():
-                        continue
-                    _render_producto_card(p)
+                    if q_local:
+                        fam_products = [
+                            p
+                            for p in fam_products
+                            if _match_any(
+                                q_local,
+                                p.get("titulo_automatico"),
+                                p.get("idproducto"),
+                                p.get("idproductoreferencia"),
+                            )
+                        ]
 
-            # ================================
-            # SUBCATEGORÍAS
-            # ================================
-            if nodo.hijos:
-                st.markdown("### 🌿 Subcategorías")
-                for h in nodo.hijos:
-                    render_nodo(h)
+                    for p in fam_products[:limit]:
+                        _render_producto_row(p)
 
-    # -----------------------------
-    # RENDER DE RAÍCES
-    # -----------------------------
-    for raiz in raices:
-        render_nodo(raiz)
+                    if len(fam_products) > limit:
+                        if st.button(
+                            "Mostrar mas",
+                            key=f"tree_more_{cat_id}_{fam_id}",
+                            use_container_width=True,
+                        ):
+                            st.session_state[limit_key] = min(
+                                len(fam_products),
+                                limit + int(step_size),
+                            )
+                            st.rerun()
 
-    st.markdown("<hr>", unsafe_allow_html=True)
-    if st.button("⬅️ Volver al catálogo", key="volver_catalogo_arbol", width="stretch"):
-        st.session_state["modo_producto"] = "Catálogo"
+            if len(fam_items) > fam_limit:
+                if st.button(
+                    "Mostrar mas familias",
+                    key=f"tree_more_fam_{cat_id}",
+                    use_container_width=True,
+                ):
+                    st.session_state[fam_limit_key] = min(
+                        len(fam_items),
+                        fam_limit + int(step_size),
+                    )
+                    st.rerun()
+
+    st.markdown("---")
+    if st.button("Volver al catalogo", key="tree_back_catalog", use_container_width=True):
+        st.session_state["modo_producto"] = "Catalogo"
+        st.session_state["prod_show_form"] = False
         st.rerun()

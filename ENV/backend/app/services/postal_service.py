@@ -13,7 +13,7 @@ class PostalService:
         exact = (
             self.supabase.table("postal_localidad")
             .select("*")
-            .eq("cp", cp)
+            .eq("codigo_postal", cp)
             .execute()
             .data or []
         )
@@ -25,7 +25,7 @@ class PostalService:
                 alt_rows = (
                     self.supabase.table("postal_localidad")
                     .select("*")
-                    .eq("cp", alt)
+                    .eq("codigo_postal", alt)
                     .execute()
                     .data or []
                 )

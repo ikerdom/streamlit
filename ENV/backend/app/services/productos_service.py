@@ -20,6 +20,7 @@ class ProductosService:
         q: Optional[str],
         familiaid: Optional[int],
         tipoid: Optional[int],
+        categoriaid: Optional[int],
         page: int,
         page_size: int,
         sort_field: str,
@@ -29,6 +30,7 @@ class ProductosService:
             q=q,
             familiaid=familiaid,
             tipoid=tipoid,
+            categoriaid=categoriaid,
             page=page,
             page_size=page_size,
             sort_field=sort_field,
@@ -37,31 +39,29 @@ class ProductosService:
 
         # catálogos para enriquecer labels
         cats = self.repo.get_catalogos()
-        fam_map = {r["familia_productoid"]: r["nombre"] for r in cats.get("familias", []) if r.get("familia_productoid")}
+        fam_map = {r["producto_familiaid"]: r["nombre"] for r in cats.get("familias", []) if r.get("producto_familiaid")}
         tipo_map = {r["producto_tipoid"]: r["nombre"] for r in cats.get("tipos", []) if r.get("producto_tipoid")}
-        imp_map = {r["impuestoid"]: r["nombre"] for r in cats.get("impuestos", []) if r.get("impuestoid")}
-        est_map = {r["estado_productoid"]: r["nombre"] for r in cats.get("estados", []) if r.get("estado_productoid")}
+        cat_map = {r["producto_categoriaid"]: r["nombre"] for r in cats.get("categorias", []) if r.get("producto_categoriaid")}
 
         productos = []
         for p in raw:
             productos.append(
                 ProductoOut(
-                    productoid=p.get("productoid"),
-                    nombre=p.get("nombre"),
-                    titulo=p.get("titulo"),
-                    referencia=p.get("referencia"),
+                    catalogo_productoid=p.get("catalogo_productoid"),
+                    productoid=p.get("catalogo_productoid"),
+                    titulo_automatico=p.get("titulo_automatico"),
+                    idproducto=p.get("idproducto"),
+                    idproductoreferencia=p.get("idproductoreferencia"),
                     isbn=p.get("isbn"),
                     ean=p.get("ean"),
-                    familia_productoid=p.get("familia_productoid"),
+                    producto_familiaid=p.get("producto_familiaid"),
+                    producto_categoriaid=p.get("producto_categoriaid"),
                     producto_tipoid=p.get("producto_tipoid"),
-                    impuestoid=p.get("impuestoid"),
-                    estado_productoid=p.get("estado_productoid"),
-                    precio=p.get("precio"),
+                    pvp=p.get("pvp"),
                     portada_url=p.get("portada_url"),
-                    familia=fam_map.get(p.get("familia_productoid")),
+                    familia=fam_map.get(p.get("producto_familiaid")),
                     tipo=tipo_map.get(p.get("producto_tipoid")),
-                    impuesto=imp_map.get(p.get("impuestoid")),
-                    estado=est_map.get(p.get("estado_productoid")),
+                    categoria=cat_map.get(p.get("producto_categoriaid")),
                 )
             )
 
@@ -85,10 +85,9 @@ class ProductosService:
             ]
 
         return ProductoCatalogosResponse(
-            familias=to_items(cats.get("familias", []), "familia_productoid", "nombre"),
+            familias=to_items(cats.get("familias", []), "producto_familiaid", "nombre"),
             tipos=to_items(cats.get("tipos", []), "producto_tipoid", "nombre"),
-            impuestos=to_items(cats.get("impuestos", []), "impuestoid", "nombre"),
-            estados=to_items(cats.get("estados", []), "estado_productoid", "nombre"),
+            categorias=to_items(cats.get("categorias", []), "producto_categoriaid", "nombre"),
         )
 
     def detalle(self, productoid: int) -> Optional[ProductoDetail]:
@@ -96,26 +95,23 @@ class ProductosService:
         if not p:
             return None
         cats = self.repo.get_catalogos()
-        fam_map = {r["familia_productoid"]: r["nombre"] for r in cats.get("familias", []) if r.get("familia_productoid")}
+        fam_map = {r["producto_familiaid"]: r["nombre"] for r in cats.get("familias", []) if r.get("producto_familiaid")}
         tipo_map = {r["producto_tipoid"]: r["nombre"] for r in cats.get("tipos", []) if r.get("producto_tipoid")}
-        imp_map = {r["impuestoid"]: r["nombre"] for r in cats.get("impuestos", []) if r.get("impuestoid")}
-        est_map = {r["estado_productoid"]: r["nombre"] for r in cats.get("estados", []) if r.get("estado_productoid")}
+        cat_map = {r["producto_categoriaid"]: r["nombre"] for r in cats.get("categorias", []) if r.get("producto_categoriaid")}
 
         return ProductoDetail(
-            productoid=p.get("productoid"),
-            nombre=p.get("nombre"),
-            titulo=p.get("titulo"),
-            referencia=p.get("referencia"),
+            catalogo_productoid=p.get("catalogo_productoid"),
+            productoid=p.get("catalogo_productoid"),
+            titulo_automatico=p.get("titulo_automatico"),
+            idproducto=p.get("idproducto"),
+            idproductoreferencia=p.get("idproductoreferencia"),
             isbn=p.get("isbn"),
             ean=p.get("ean"),
-            sinopsis=p.get("sinopsis"),
-            versatilidad=p.get("versatilidad"),
-            precio=p.get("precio"),
+            pvp=p.get("pvp"),
             portada_url=p.get("portada_url"),
             publico=p.get("publico"),
             fecha_publicacion=p.get("fecha_publicacion"),
-            familia=fam_map.get(p.get("familia_productoid")),
+            familia=fam_map.get(p.get("producto_familiaid")),
             tipo=tipo_map.get(p.get("producto_tipoid")),
-            impuesto=imp_map.get(p.get("impuestoid")),
-            estado=est_map.get(p.get("estado_productoid")),
+            categoria=cat_map.get(p.get("producto_categoriaid")),
         )

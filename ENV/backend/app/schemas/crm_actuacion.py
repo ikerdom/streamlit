@@ -1,40 +1,43 @@
 # backend/app/schemas/crm_actuacion.py
 from typing import Optional
-from pydantic import BaseModel
 from datetime import date, datetime
-
-
-ESTADOS_CRM = {"Pendiente", "Completada", "Cancelada"}
-PRIORIDADES_CRM = {"Alta", "Media", "Baja"}
-CANALES_CRM = {"Teléfono", "Email", "Reunión", "WhatsApp", "Otro"}
+from pydantic import BaseModel
 
 
 class CrmActuacionIn(BaseModel):
     titulo: str
     descripcion: Optional[str] = None
-    canal: str
-    estado: str = "Pendiente"
-    prioridad: str = "Media"
+    observaciones: Optional[str] = None
 
-    fecha_vencimiento: date
+    crm_actuacion_tipoid: Optional[int] = None
+    crm_actuacion_estadoid: Optional[int] = None
+
+    fecha_vencimiento: Optional[date] = None
     fecha_accion: Optional[datetime] = None
 
-    trabajadorid: int                 # creador
-    trabajador_asignadoid: int        # responsable
+    requiere_seguimiento: bool = False
+    fecha_recordatorio: Optional[datetime] = None
+
+    trabajador_creadorid: Optional[int] = None
+    trabajador_asignadoid: Optional[int] = None
 
 
 class CrmActuacionOut(BaseModel):
     crm_actuacionid: int
-    clienteid: int
+    clienteid: Optional[int] = None
 
-    titulo: str
-    descripcion: Optional[str]
-    canal: str
-    estado: str
-    prioridad: str
+    titulo: Optional[str] = None
+    descripcion: Optional[str] = None
+    observaciones: Optional[str] = None
 
-    fecha_vencimiento: date
-    fecha_accion: Optional[datetime]
+    crm_actuacion_tipoid: Optional[int] = None
+    crm_actuacion_estadoid: Optional[int] = None
 
-    trabajadorid: int
-    trabajador_asignadoid: int
+    fecha_vencimiento: Optional[date] = None
+    fecha_accion: Optional[datetime] = None
+
+    requiere_seguimiento: Optional[bool] = None
+    fecha_recordatorio: Optional[datetime] = None
+
+    trabajador_creadorid: Optional[int] = None
+    trabajador_asignadoid: Optional[int] = None

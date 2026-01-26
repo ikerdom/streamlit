@@ -65,5 +65,8 @@ def hacer_principal(
     contactoid: int,
     service: ClienteContactoService = Depends(get_service),
 ):
-    service.hacer_principal(clienteid, contactoid)
-    return {"ok": True}
+    try:
+        service.hacer_principal(clienteid, contactoid)
+        return {"ok": True}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))

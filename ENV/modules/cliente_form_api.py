@@ -26,182 +26,219 @@ def _api_post(path: str, json=None):
     return r.json()
 
 
-def render_cliente_form(modo: str = "cliente"):
-    """Formulario de alta de cliente/potencial."""
-    is_potencial = modo == "potencial"
+def _api_put(path: str, json=None):
+    r = requests.put(f"{_api_base()}{path}", json=json, timeout=40)
+    r.raise_for_status()
+    return r.json()
 
-    st.title("Nuevo cliente potencial" if is_potencial else "Nuevo cliente")
+
+def _init_value(key: str, value):
+    if key not in st.session_state:
+        st.session_state[key] = value if value is not None else ""
+
+
+def render_cliente_form(modo: str = "cliente"):
+    """Formulario de alta de cliente/potencial (schema nuevo)."""
+    is_potencial = modo == "potencial"
+    cliente_id = st.session_state.get("cliente_actual") if not is_potencial else None
+    is_edit = bool(cliente_id)
+    key_prefix = f"{modo}_edit_{cliente_id}" if is_edit else modo
+
+    st.title("Editar cliente" if is_edit else ("Nuevo cliente potencial" if is_potencial else "Nuevo cliente"))
     st.caption(
-        "Alta rápida de cliente potencial (perfil incompleto permitido)."
+        "Alta rapida de cliente potencial (perfil incompleto permitido)."
         if is_potencial
-        else "Alta completa del cliente en el sistema."
+        else ("Actualiza los datos del cliente seleccionado." if is_edit else "Alta completa del cliente en el sistema.")
     )
 
-    # Catálogos
     try:
         cats = _api_get("/api/clientes/catalogos")
     except Exception as e:
-        st.error(f"No se pudieron cargar catálogos desde API: {e}")
+        st.error(f"No se pudieron cargar catalogos desde API: {e}")
         return
 
-    def to_map(items):
-        return {i["label"]: i["id"] for i in (items or [])}
+    grupos = {i["label"]: i["id"] for i in (cats.get("grupos") or [])}
 
-    estados = to_map(cats.get("estados"))
-    categorias = to_map(cats.get("categorias"))
-    formas_pago = to_map(cats.get("formas_pago"))
-    grupos = to_map(cats.get("grupos"))
-    trabajadores = to_map(cats.get("trabajadores"))
-    tarifas = to_map(cats.get("tarifas"))
+    cliente_base = {}
+    if is_edit:
+        try:
+            detalle = _api_get(f"/api/clientes/{cliente_id}")
+            cliente_base = detalle.get("cliente") or {}
+        except Exception as e:
+            st.error(f"No se pudieron cargar los datos del cliente: {e}")
+            cliente_base = {}
 
-    # Información general
-    with st.expander("Información general", expanded=True):
+    with st.expander("Informacion general", expanded=True):
         c1, c2 = st.columns(2)
         with c1:
-            razon_social = st.text_input("Razón social *", key=f"{modo}_razon")
-            identificador = st.text_input("Identificador único *", key=f"{modo}_ident")
-            estado_nombre = st.selectbox("Estado", list(estados.keys()) or ["-"], key=f"{modo}_estado")
-            categoria_nombre = st.selectbox("Categoría", list(categorias.keys()) or ["-"], key=f"{modo}_cat")
-            grupo_nombre = st.selectbox("Grupo", ["(Sin grupo)"] + list(grupos.keys()), key=f"{modo}_grupo")
+            _init_value(f"{key_prefix}_razon", cliente_base.get("razonsocial"))
+            _init_value(f"{key_prefix}_nombre", cliente_base.get("nombre"))
+            _init_value(f"{key_prefix}_cif", cliente_base.get("cifdni"))
+            _init_value(f"{key_prefix}_codcta", cliente_base.get("codigocuenta"))
+            _init_value(f"{key_prefix}_codcp", cliente_base.get("codigoclienteoproveedor"))
+            razonsocial = st.text_input("Razon social", key=f"{key_prefix}_razon")
+            nombre = st.text_input("Nombre", key=f"{key_prefix}_nombre")
+            cifdni = st.text_input("CIF/DNI", key=f"{key_prefix}_cif")
+            codigocuenta = st.text_input("Codigo cuenta", key=f"{key_prefix}_codcta")
+            codigoclienteoproveedor = st.text_input(
+                "Codigo cliente/proveedor", key=f"{key_prefix}_codcp"
+            )
         with c2:
-            formapago_nombre = st.selectbox(
-                "Forma de pago",
-                list(formas_pago.keys()) or ["-"],
-                disabled=is_potencial,
-                key=f"{modo}_fp",
+            tipo_opts = ["", "cliente", "proveedor", "potencial"]
+            tipo_default = "potencial" if is_potencial else "cliente"
+            tipo_default = cliente_base.get("clienteoproveedor") or tipo_default
+            tipo_index = tipo_opts.index(tipo_default) if tipo_default in tipo_opts else 0
+            clienteoproveedor = st.selectbox(
+                "Tipo", tipo_opts, index=tipo_index
             )
-            trabajador_nombre = st.selectbox(
-                "Trabajador asignado",
-                ["(Sin asignar)"] + list(trabajadores.keys()),
-                key=f"{modo}_trab",
+            grupo_labels = ["(Sin grupo)"] + list(grupos.keys())
+            grupo_default = "(Sin grupo)"
+            if cliente_base.get("idgrupo") is not None:
+                for label, gid in grupos.items():
+                    if gid == cliente_base.get("idgrupo"):
+                        grupo_default = label
+                        break
+            grupo_index = grupo_labels.index(grupo_default) if grupo_default in grupo_labels else 0
+            grupo_nombre = st.selectbox(
+                "Grupo", grupo_labels, key=f"{key_prefix}_grupo", index=grupo_index
             )
-            observaciones = st.text_area("Observaciones internas", key=f"{modo}_obs")
-        tarifa_nombre = st.selectbox(
-            "Tarifa asignada",
-            ["(Sin tarifa)"] + list(tarifas.keys()),
-            key=f"{modo}_tarifa",
-        )
+            _init_value(f"{key_prefix}_tel", cliente_base.get("telefono"))
+            _init_value(f"{key_prefix}_tel2", cliente_base.get("telefono2"))
+            _init_value(f"{key_prefix}_tel3", cliente_base.get("telefono3"))
+            _init_value(f"{key_prefix}_fax", cliente_base.get("fax"))
+            telefono = st.text_input("Telefono", key=f"{key_prefix}_tel")
+            telefono2 = st.text_input("Telefono 2", key=f"{key_prefix}_tel2")
+            telefono3 = st.text_input("Telefono 3", key=f"{key_prefix}_tel3")
+            fax = st.text_input("Fax", key=f"{key_prefix}_fax")
 
-    # Dirección fiscal
-    with st.expander("Dirección fiscal", expanded=False):
+    with st.expander("Direccion", expanded=False):
         d1, d2 = st.columns(2)
         with d1:
-            direccion = st.text_input("Dirección", key=f"{modo}_dir")
-            ciudad = st.text_input("Ciudad", key=f"{modo}_ciudad")
-            provincia = st.text_input("Provincia", key=f"{modo}_prov")
-            pais = st.text_input("País", value="España", key=f"{modo}_pais")
+            _init_value(f"{key_prefix}_via", cliente_base.get("viapublica"))
+            _init_value(f"{key_prefix}_dom", cliente_base.get("domicilio"))
+            _init_value(f"{key_prefix}_mun", cliente_base.get("municipio"))
+            viapublica = st.text_input("Via publica", key=f"{key_prefix}_via")
+            domicilio = st.text_input("Domicilio", key=f"{key_prefix}_dom")
+            municipio = st.text_input("Municipio", key=f"{key_prefix}_mun")
         with d2:
-            cp = st.text_input("Código postal", key=f"{modo}_cp")
-            if st.button("Rellenar desde CP", key=f"{modo}_btn_cp"):
-                try:
-                    filas = _api_get("/api/postal/buscar", params={"cp": cp})
-                except Exception as e:
-                    st.error(f"Error buscando CP: {e}")
-                    filas = []
-                if not filas:
-                    st.warning("No se encontró ese código postal.")
-                elif len(filas) == 1:
-                    r = filas[0]
-                    st.session_state[f"{modo}_ciudad"] = r.get("localidad") or ciudad
-                    st.session_state[f"{modo}_prov"] = r.get("provincia_nombre_raw") or provincia
-                    st.success(f"{st.session_state[f'{modo}_ciudad']} ({st.session_state[f'{modo}_prov']})")
-                    st.rerun()
-                else:
-                    opciones = [f"{r.get('localidad')} ({r.get('provincia_nombre_raw')})" for r in filas]
-                    sel = st.selectbox("Selecciona localidad", opciones, key=f"{modo}_cp_sel")
-                    idx = opciones.index(sel)
-                    r = filas[idx]
-                    st.session_state[f"{modo}_ciudad"] = r.get("localidad") or ciudad
-                    st.session_state[f"{modo}_prov"] = r.get("provincia_nombre_raw") or provincia
-                    st.rerun()
-            telefono = st.text_input("Teléfono", key=f"{modo}_tel")
-            email = st.text_input("Email", key=f"{modo}_email")
-            documentacion_impresa = st.selectbox(
-                "Documentación impresa",
-                ["valorado", "no_valorado", "factura"],
-                key=f"{modo}_docimp",
-            )
+            _init_value(f"{key_prefix}_cp", cliente_base.get("codigopostal"))
+            _init_value(f"{key_prefix}_prov", cliente_base.get("provincia"))
+            _init_value(f"{key_prefix}_pais", cliente_base.get("idpais") or "ES")
+            codigopostal = st.text_input("Codigo postal", key=f"{key_prefix}_cp")
+            provincia = st.text_input("Provincia", key=f"{key_prefix}_prov")
+            idpais = st.text_input("Pais (ID)", key=f"{key_prefix}_pais")
 
-    # Contacto principal
     with st.expander("Contacto principal", expanded=False):
         c1, c2 = st.columns(2)
         with c1:
-            contacto_nombre = st.text_input("Nombre contacto", key=f"{modo}_c_nom")
-            contacto_email = st.text_input("Email contacto", key=f"{modo}_c_mail")
+            _init_value(f"{key_prefix}_c_nom", "")
+            _init_value(f"{key_prefix}_c_mail", "")
+            contacto_nombre = st.text_input("Nombre contacto", key=f"{key_prefix}_c_nom")
+            contacto_email = st.text_input("Email contacto", key=f"{key_prefix}_c_mail")
         with c2:
-            contacto_tel = st.text_input("Teléfono contacto", key=f"{modo}_c_tel")
-            contacto_rol = st.text_input("Rol / Cargo", key=f"{modo}_c_rol")
+            _init_value(f"{key_prefix}_c_tel", "")
+            contacto_tel = st.text_input("Telefono contacto", key=f"{key_prefix}_c_tel")
 
-    # Banco
     if not is_potencial:
         with st.expander("Datos bancarios", expanded=False):
-            iban = st.text_input("IBAN", key=f"{modo}_iban")
-            banco_nombre = st.text_input("Banco", key=f"{modo}_banco")
-            fecha_baja = st.date_input("Fecha de baja", value=None, key=f"{modo}_fbaja")
+            _init_value(f"{key_prefix}_iban", cliente_base.get("iban"))
+            _init_value(f"{key_prefix}_banco", cliente_base.get("codigobanco"))
+            _init_value(f"{key_prefix}_agencia", cliente_base.get("codigoagencia"))
+            _init_value(f"{key_prefix}_dc", cliente_base.get("dc"))
+            _init_value(f"{key_prefix}_ccc", cliente_base.get("ccc"))
+            iban = st.text_input("IBAN", key=f"{key_prefix}_iban")
+            codigobanco = st.text_input("Codigo banco", key=f"{key_prefix}_banco")
+            codigoagencia = st.text_input("Codigo agencia", key=f"{key_prefix}_agencia")
+            dc = st.text_input("DC", key=f"{key_prefix}_dc")
+            ccc = st.text_input("CCC", key=f"{key_prefix}_ccc")
     else:
-        iban = banco_nombre = fecha_baja = None
+        iban = codigobanco = codigoagencia = dc = ccc = None
 
-    # Guardar / salir
+    with st.expander("Efectos", expanded=False):
+        _init_value(f"{key_prefix}_cte", cliente_base.get("codigotipoefecto"))
+        _init_value(f"{key_prefix}_cce", cliente_base.get("codigocuentaefecto"))
+        _init_value(f"{key_prefix}_cci", cliente_base.get("codigocuentaimpagado"))
+        _init_value(f"{key_prefix}_remesa", cliente_base.get("remesahabitual"))
+        codigotipoefecto = st.text_input("Codigo tipo efecto", key=f"{key_prefix}_cte")
+        codigocuentaefecto = st.text_input("Codigo cuenta efecto", key=f"{key_prefix}_cce")
+        codigocuentaimpagado = st.text_input("Codigo cuenta impagado", key=f"{key_prefix}_cci")
+        remesahabitual = st.text_input("Remesa habitual", key=f"{key_prefix}_remesa")
+
     colg, colx = st.columns([3, 1])
-    guardar = colg.button("Guardar", use_container_width=True, key=f"{modo}_guardar")
-    cancelar = colx.button("Salir", use_container_width=True, key=f"{modo}_cancelar")
+    guardar_label = "Guardar cambios" if is_edit else "Guardar"
+    guardar = colg.button(guardar_label, use_container_width=True, key=f"{key_prefix}_guardar")
+    cancelar = colx.button("Salir", use_container_width=True, key=f"{key_prefix}_cancelar")
 
     if cancelar:
         st.session_state["cli_show_form"] = None
         st.rerun()
 
     if guardar:
-        if not razon_social or not identificador:
-            st.warning("Razón social e identificador son obligatorios.")
-            return
-        if not is_potencial and not (direccion and ciudad and cp):
-            st.warning("Dirección fiscal completa obligatoria para clientes.")
+        if not (razonsocial or nombre):
+            st.warning("Razon social o nombre son obligatorios.")
             return
 
         body = {
-            "tipo": "potencial" if is_potencial else "cliente",
-            "razon_social": razon_social,
-            "identificador": identificador,
-            "estadoid": estados.get(estado_nombre),
-            "categoriaid": categorias.get(categoria_nombre),
-            "grupoid": None if grupo_nombre == "(Sin grupo)" else grupos.get(grupo_nombre),
-            "formapagoid": None if is_potencial else formas_pago.get(formapago_nombre),
-            "trabajadorid": None if trabajador_nombre == "(Sin asignar)" else trabajadores.get(trabajador_nombre),
-            "observaciones": observaciones,
-            "tarifaid": None if tarifa_nombre == "(Sin tarifa)" else tarifas.get(tarifa_nombre),
-            "perfil_completo": False,
-            "direccion_fiscal": {
-                "tipo": "fiscal",
-                "direccion": direccion,
-                "ciudad": ciudad,
-                "provincia": provincia,
-                "pais": pais,
-                "cp": cp,
-                "telefono": telefono,
-                "email": email,
-                "documentacion_impresa": documentacion_impresa,
-            },
-            "contacto_principal": {
-                "nombre": contacto_nombre,
-                "email": contacto_email,
-                "telefono": contacto_tel,
-                "rol": contacto_rol,
-                "es_principal": True,
-            },
-            "banco": None
-            if is_potencial
-            else {
-                "iban": iban,
-                "nombre_banco": banco_nombre,
-                "fecha_baja": str(fecha_baja) if fecha_baja else None,
-            },
+            "codigocuenta": codigocuenta or None,
+            "codigoclienteoproveedor": codigoclienteoproveedor or None,
+            "clienteoproveedor": clienteoproveedor or None,
+            "razonsocial": razonsocial or None,
+            "nombre": nombre or None,
+            "cifdni": cifdni or None,
+            "viapublica": viapublica or None,
+            "domicilio": domicilio or None,
+            "codigopostal": codigopostal or None,
+            "provincia": provincia or None,
+            "municipio": municipio or None,
+            "telefono": telefono or None,
+            "telefono2": telefono2 or None,
+            "telefono3": telefono3 or None,
+            "fax": fax or None,
+            "iban": iban or None,
+            "codigobanco": codigobanco or None,
+            "codigoagencia": codigoagencia or None,
+            "dc": dc or None,
+            "ccc": ccc or None,
+            "codigotipoefecto": codigotipoefecto or None,
+            "codigocuentaefecto": codigocuentaefecto or None,
+            "codigocuentaimpagado": codigocuentaimpagado or None,
+            "remesahabitual": remesahabitual or None,
+            "idgrupo": None if grupo_nombre == "(Sin grupo)" else grupos.get(grupo_nombre),
         }
+
+        contactos = []
+        if contacto_tel:
+            contactos.append({"tipo": "TELEFONO", "valor": contacto_tel, "principal": True})
+        if contacto_email:
+            contactos.append({"tipo": "EMAIL", "valor": contacto_email, "principal": False})
+        if fax:
+            contactos.append({"tipo": "FAX", "valor": fax, "principal": False})
+
+        direcciones = []
+        if any([domicilio, codigopostal, provincia, municipio, idpais]):
+            direcciones.append({
+                "razonsocial": razonsocial,
+                "direccionfiscal": domicilio,
+                "direccion": domicilio,
+                "idpais": (idpais or None),
+                "idprovincia": provincia,
+                "municipio": municipio,
+                "codigopostal": codigopostal,
+            })
 
         try:
             with st.spinner("Guardando..."):
-                res = _api_post("/api/clientes", json=body)
-            st.toast(res.get("mensaje", "Guardado"), icon="✅")
-            st.session_state["cliente_actual"] = res.get("clienteid")
+                if is_edit:
+                    res = _api_put(f"/api/clientes/{cliente_id}", json=body)
+                else:
+                    if contactos:
+                        body["contactos"] = contactos
+                    if direcciones:
+                        body["direcciones"] = direcciones
+                    res = _api_post("/api/clientes", json=body)
+            st.toast(res.get("mensaje", "Guardado"), icon="OK")
+            if not is_edit:
+                st.session_state["cliente_actual"] = res.get("clienteid")
             st.session_state["cli_show_form"] = None
             st.rerun()
         except requests.HTTPError as e:

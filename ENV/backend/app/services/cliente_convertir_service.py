@@ -11,7 +11,7 @@ class ClienteConvertirService:
         # Cliente base
         cli = (
             self.supabase.table("cliente")
-            .select("clienteid, razon_social, identificador")
+            .select("clienteid, razonsocial, nombre, cifdni, domicilio, municipio, codigopostal")
             .eq("clienteid", clienteid)
             .single()
             .execute()
@@ -21,24 +21,26 @@ class ClienteConvertirService:
         if not cli:
             return False
 
-        if not cli.get("razon_social") or not cli.get("identificador"):
+        nombre = cli.get("razonsocial") or cli.get("nombre")
+        if not nombre or not cli.get("cifdni"):
             return False
 
         # Dirección fiscal
         direccion = (
-            self.supabase.table("cliente_direccion")
-            .select("direccion, ciudad, cp")
-            .eq("clienteid", clienteid)
-            .eq("tipo", "fiscal")
-            .single()
+            self.supabase.table("clientes_direccion")
+            .select("direccion, municipio, codigopostal")
+            .eq("idtercero", clienteid)
+            .limit(1)
             .execute()
             .data
         )
 
-        if not direccion:
-            return False
+        if direccion:
+            row = direccion[0]
+            if row.get("direccion") and row.get("municipio") and row.get("codigopostal"):
+                return True
 
-        if not (direccion.get("direccion") and direccion.get("ciudad") and direccion.get("cp")):
+        if not (cli.get("domicilio") and cli.get("municipio") and cli.get("codigopostal")):
             return False
 
         return True

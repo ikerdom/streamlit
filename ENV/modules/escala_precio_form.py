@@ -1,17 +1,29 @@
 # ======================================================
 # 💰 ESCALAS DE PRECIO — Gestión de descuentos y precios especiales
 # ======================================================
-import streamlit as st
+import os
 from datetime import date
+from pathlib import Path
+
 import pandas as pd
+import streamlit as st
+from dotenv import load_dotenv
 from supabase import create_client
 
 # ======================================================
 # 🔌 CONFIGURACIÓN SUPABASE
 # ======================================================
-SUPABASE_URL = "https://gqhrbvusvcaytcbnusdx.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdxaHJidnVzdmNheXRjYm51c2R4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk0MzM3MDQsImV4cCI6MjA3NTAwOTcwNH0.y3018JLs9A08sSZKHLXeMsITZ3oc4s2NDhNLxWqM9Ag"
-supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+load_dotenv(dotenv_path=ENV_PATH, override=True)
+
+URL_SUPABASE = (os.getenv("URL_SUPABASE") or "").strip()
+SUPABASE_KEY = (os.getenv("SUPABASE_KEY") or "").strip()
+if not URL_SUPABASE or not SUPABASE_KEY:
+    raise RuntimeError("Faltan URL_SUPABASE/SUPABASE_KEY en ENV/.env")
+if URL_SUPABASE.startswith("postgresql://") or not URL_SUPABASE.startswith("http"):
+    raise RuntimeError("URL_SUPABASE invalida. Debe ser https://xxxx.supabase.co")
+
+supabase = create_client(URL_SUPABASE, SUPABASE_KEY)
 
 
 def render_escala_precio():
@@ -55,16 +67,16 @@ def render_escala_precio():
 
         try:
             if tipo == "cliente":
-                data = supabase.table("cliente").select("clienteid, razon_social").order("razon_social").execute().data
-                opciones = {d["razon_social"]: d["clienteid"] for d in data}
+                data = supabase.table("cliente").select("clienteid, razonsocial, nombre").order("razonsocial").execute().data
+                opciones = {(d.get("razonsocial") or d.get("nombre","")): d["clienteid"] for d in data}
                 campo_id = "clienteid"
             elif tipo == "familia":
                 data = supabase.table("familia_producto").select("familia_productoid, nombre").execute().data
                 opciones = {d["nombre"]: d["familia_productoid"] for d in data}
                 campo_id = "familia_productoid"
             elif tipo == "proveedor":
-                data = supabase.table("proveedor").select("proveedorid, razon_social").execute().data
-                opciones = {d["razon_social"]: d["proveedorid"] for d in data}
+                data = supabase.table("proveedor").select("proveedorid, nombre").execute().data
+                opciones = {d["nombre"]: d["proveedorid"] for d in data}
                 campo_id = "proveedorid"
         except Exception as e:
             st.error(f"❌ Error cargando opciones: {e}")

@@ -48,7 +48,7 @@ def render_login():
             # Buscar trabajador por correo
             trab = (
                 supabase.table("trabajador")
-                .select("trabajadorid, nombre, apellidos, telefono, email, rol")
+                .select("trabajadorid, nombre, apellidos, telefono, email, trabajador_rolid, trabajador_rol(nombre)")
                 .eq("email", email.strip())
                 .limit(1)
                 .execute()
@@ -66,7 +66,10 @@ def render_login():
                 st.session_state["user_nombre"] = f"{t['nombre']} {t['apellidos']}"
                 st.session_state["tipo_usuario"] = "trabajador"
                 st.session_state["trabajadorid"] = t["trabajadorid"]
-                st.session_state["rol_usuario"] = t.get("rol", "Editor")
+                rol_nombre = None
+                if isinstance(t.get("trabajador_rol"), dict):
+                    rol_nombre = t["trabajador_rol"].get("nombre")
+                st.session_state["rol_usuario"] = rol_nombre or "Editor"
 
                 st.success(f"✅ Bienvenido {t['nombre']} ({email})")
                 st.info("Acceso habilitado a gestión de clientes, CRM y comunicación interna.")

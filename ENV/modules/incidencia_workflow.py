@@ -31,13 +31,13 @@ except Exception:
         try:
             rows = (
                 _supabase.table("cliente")
-                .select("clienteid, razon_social")
-                .order("razon_social")
+                .select("clienteid, razonsocial, nombre")
+                .order("razonsocial")
                 .limit(5000)
                 .execute()
                 .data or []
             )
-            return {r["razon_social"]: r["clienteid"] for r in rows if r.get("clienteid")}
+            return {(r.get("razonsocial") or r.get("nombre","")): r["clienteid"] for r in rows if r.get("clienteid")}
         except Exception:
             return {}
 
@@ -226,9 +226,9 @@ def render_incidencia_detalle(supabase):
             if pr:
                 origen_info = f"Producto: {pr[0].get('nombre','-')}"
         elif origen_tipo == "cliente" and origen_id:
-            cl = supabase.table("cliente").select("razon_social").eq("clienteid", origen_id).execute().data
+            cl = supabase.table("cliente").select("razonsocial, nombre").eq("clienteid", origen_id).execute().data
             if cl:
-                origen_info = f"Cliente: {cl[0].get('razon_social','-')}"
+                origen_info = f"Cliente: {cl[0].get('razonsocial') or cl[0].get('nombre','-')}"
     except Exception:
         pass
 

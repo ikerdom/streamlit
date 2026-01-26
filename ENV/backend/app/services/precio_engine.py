@@ -1,27 +1,3 @@
-# ======================================================
-# Motor de cálculo de precios y tarifas (backend)
-# ======================================================
-# Reglas:
-# - Tabla tarifa: MAESTRA, contiene descuento_pct (sin fechas).
-# - Tabla tarifa_regla: asigna una tarifa a combinaciones y rango de fechas.
-#   Targets: (clienteid | grupoid) x (productoid | familia_productoid)
-#   + ventanas fecha_inicio / fecha_fin + habilitada + prioridad (asc)
-#
-# Jerarquía de aplicación (1 > 2 > 3 > 4 > 5 > 6):
-# 1) producto + cliente
-# 2) familia  + cliente
-# 3) producto + grupo
-# 4) familia  + grupo
-# 5) cliente_tarifa activa (si existe)
-# 6) fallback: "Tarifa General" (descuento 5%) — si existe habilitada
-#
-# IVA:
-# - Primero usa producto.impuestoid si está habilitado y vigente
-# - Si no, usa producto_tipo.impuestoid
-# - Si no, busca en IMPUESTO por país (según región de envío/facturación) y tipo_producto,
-#   prefiriendo coincidencia exacta; fallback a "general"
-# - Redondeo a 2 decimales
-
 from datetime import date
 from typing import Optional, Dict, Any
 
@@ -47,121 +23,74 @@ def _round2(x: float) -> float:
 def _fetch_cliente_ctx(supabase, clienteid: Optional[int]) -> Dict[str, Any]:
     ctx = {
         "grupoid": 0,
-        "regionid": None,
-        "region_nombre": "España",
+        "ambito": "ES",
         "region_origen": None,
     }
 
     if not clienteid:
         return ctx
 
-    # grupo
     try:
         cli = (
             supabase.table("cliente")
-            .select("clienteid, grupoid")
+            .select("clienteid, idgrupo")
             .eq("clienteid", clienteid)
             .single()
             .execute()
             .data
         )
-        if cli and cli.get("grupoid"):
-            ctx["grupoid"] = cli["grupoid"]
+        if cli and cli.get("idgrupo"):
+            ctx["grupoid"] = cli["idgrupo"]
     except Exception:
         pass
 
-    # dirección de envío
     try:
         env = (
-            supabase.table("cliente_direccion")
-            .select("regionid")
-            .eq("clienteid", clienteid)
-            .eq("tipo", "envio")
+            supabase.table("clientes_direccion")
+            .select("idpais")
+            .eq("idtercero", clienteid)
+            .order("clientes_direccionid")
             .limit(1)
             .execute()
             .data
         )
-        if env:
-            ctx["regionid"] = env[0]["regionid"]
+        if env and env[0].get("idpais"):
+            ctx["ambito"] = env[0]["idpais"]
             ctx["region_origen"] = "envio"
     except Exception:
         pass
-
-    # dirección fiscal si no hay envío
-    if ctx["regionid"] is None:
-        try:
-            fac = (
-                supabase.table("cliente_direccion")
-                .select("regionid")
-                .eq("clienteid", clienteid)
-                .eq("tipo", "fiscal")
-                .limit(1)
-                .execute()
-                .data
-            )
-            if fac:
-                ctx["regionid"] = fac[0]["regionid"]
-                ctx["region_origen"] = "fiscal"
-        except Exception:
-            pass
-
-    # nombre región
-    if ctx["regionid"]:
-        try:
-            reg = (
-                supabase.table("region")
-                .select("nombre")
-                .eq("regionid", ctx["regionid"])
-                .single()
-                .execute()
-                .data
-            )
-            if reg:
-                ctx["region_nombre"] = reg["nombre"]
-        except Exception:
-            pass
 
     return ctx
 
 
 def _fetch_producto_ctx(supabase, productoid: Optional[int]) -> Dict[str, Any]:
-    """
-    Devuelve datos base del producto:
-    - familia_productoid
-    - precio_generico
-    - impuestoid (si existe)
-    - producto_tipoid
-    - nombre_tipo_producto (para IVA por tipo)
-    """
     ctx = {
         "familia_productoid": None,
         "precio_generico": 0.0,
-        "impuestoid": None,
         "producto_tipoid": None,
         "tipo_producto_nombre": None,
     }
     if not productoid:
         return ctx
+
     try:
         prod = (
             supabase.table("producto")
-            .select("familia_productoid, precio_generico, impuestoid, producto_tipoid")
-            .eq("productoid", productoid)
+            .select("producto_familiaid, pvp, producto_tipoid")
+            .eq("catalogo_productoid", productoid)
             .single()
             .execute()
             .data
         )
         if prod:
-            ctx["familia_productoid"] = prod.get("familia_productoid")
-            ctx["precio_generico"] = float(prod.get("precio_generico") or 0.0)
-            ctx["impuestoid"] = prod.get("impuestoid")
+            ctx["familia_productoid"] = prod.get("producto_familiaid")
+            ctx["precio_generico"] = float(prod.get("pvp") or 0.0)
             ctx["producto_tipoid"] = prod.get("producto_tipoid")
 
-            # nombre del tipo (para búsqueda de IVA por tipo)
             if ctx["producto_tipoid"]:
                 trow = (
                     supabase.table("producto_tipo")
-                    .select("nombre, impuestoid")
+                    .select("nombre")
                     .eq("producto_tipoid", ctx["producto_tipoid"])
                     .single()
                     .execute()
@@ -169,110 +98,57 @@ def _fetch_producto_ctx(supabase, productoid: Optional[int]) -> Dict[str, Any]:
                 )
                 if trow:
                     ctx["tipo_producto_nombre"] = trow.get("nombre")
-                    if not ctx["impuestoid"] and trow.get("impuestoid"):
-                        ctx["impuestoid"] = trow.get("impuestoid")
     except Exception:
         pass
+
     return ctx
 
 
-# ======================================================
-# IVA
-# ======================================================
 def _resolve_impuesto_pct(
     supabase,
     *,
-    product_impuestoid: Optional[int],
     producto_tipoid: Optional[int],
-    producto_tipo_nombre: Optional[str],
-    region_nombre: Optional[str],
+    ambito: Optional[str],
     fecha_iso: str,
 ) -> Dict[str, Any]:
-    """Determina el IVA aplicable según producto, tipo y región."""
-    # 1) Impuesto del producto
-    if product_impuestoid:
-        try:
-            imp = (
-                supabase.table("impuesto")
-                .select("impuestoid, nombre, porcentaje, pais, habilitado, fecha_inicio, fecha_fin")
-                .eq("impuestoid", product_impuestoid)
-                .single()
-                .execute()
-                .data
-            )
-            if imp and imp.get("habilitado") and _is_active_window(imp, fecha_iso):
-                return {"iva_pct": float(imp["porcentaje"]), "iva_nombre": imp["nombre"], "iva_origen": "producto"}
-        except Exception:
-            pass
-
-    # 2) Impuesto del tipo de producto
-    if producto_tipoid:
-        try:
-            tipo = (
-                supabase.table("producto_tipo")
-                .select("impuestoid, nombre")
-                .eq("producto_tipoid", producto_tipoid)
-                .single()
-                .execute()
-                .data
-            )
-            if tipo and tipo.get("impuestoid"):
-                imp = (
-                    supabase.table("impuesto")
-                    .select("nombre, porcentaje, pais, habilitado, fecha_inicio, fecha_fin")
-                    .eq("impuestoid", tipo["impuestoid"])
-                    .single()
-                    .execute()
-                    .data
-                )
-                if imp and imp.get("habilitado") and _is_active_window(imp, fecha_iso):
-                    return {"iva_pct": float(imp["porcentaje"]), "iva_nombre": imp["nombre"], "iva_origen": "producto_tipo"}
-        except Exception:
-            pass
-
-    # 3) Búsqueda contextual por tipo_producto + país/región
     try:
-        q = supabase.table("impuesto").select("nombre, porcentaje, tipo_producto, pais, habilitado, fecha_inicio, fecha_fin")
-        q = q.eq("habilitado", True)
-        if region_nombre:
-            q = q.eq("pais", region_nombre)
-        imps = q.execute().data or []
-        imps = [i for i in imps if _is_active_window(i, fecha_iso)]
-
-        exact = [i for i in imps if (i.get("tipo_producto") or "").lower() == (producto_tipo_nombre or "").lower()]
-        if exact:
-            i0 = exact[0]
-            return {"iva_pct": float(i0["porcentaje"]), "iva_nombre": i0["nombre"], "iva_origen": "busqueda"}
-
-        general = [i for i in imps if not i.get("tipo_producto")]
-        if general:
-            i0 = general[0]
-            return {"iva_pct": float(i0["porcentaje"]), "iva_nombre": i0["nombre"], "iva_origen": "busqueda"}
-    except Exception:
-        pass
-
-    # 4) Fallback genérico España 21%
-    try:
-        imp_es = (
+        rows = (
             supabase.table("impuesto")
-            .select("nombre, porcentaje")
-            .eq("pais", "España")
+            .select(
+                "impuestoid, impuesto_nombre, tasa_pct, ambito, producto_tipoid, habilitado, fecha_inicio, fecha_fin"
+            )
             .eq("habilitado", True)
             .execute()
             .data
+            or []
         )
-        if imp_es:
-            gen = next((i for i in imp_es if "general" in i.get("nombre", "").lower()), imp_es[0])
-            return {"iva_pct": float(gen["porcentaje"]), "iva_nombre": gen["nombre"], "iva_origen": "fallback"}
+        rows = [r for r in rows if _is_active_window(r, fecha_iso)]
+        if ambito:
+            rows = [r for r in rows if (r.get("ambito") or "").upper() == ambito.upper()]
+
+        tipo_rows = [r for r in rows if producto_tipoid and r.get("producto_tipoid") == producto_tipoid]
+        if tipo_rows:
+            best = sorted(tipo_rows, key=lambda r: r.get("fecha_inicio") or "", reverse=True)[0]
+            return {
+                "iva_pct": float(best.get("tasa_pct") or 0.0),
+                "iva_nombre": best.get("impuesto_nombre"),
+                "iva_origen": "producto_tipo",
+            }
+
+        general = [r for r in rows if not r.get("producto_tipoid")]
+        if general:
+            best = sorted(general, key=lambda r: r.get("fecha_inicio") or "", reverse=True)[0]
+            return {
+                "iva_pct": float(best.get("tasa_pct") or 0.0),
+                "iva_nombre": best.get("impuesto_nombre"),
+                "iva_origen": "ambito_general",
+            }
     except Exception:
         pass
 
     return {"iva_pct": 0.0, "iva_nombre": None, "iva_origen": "desconocido"}
 
 
-# ======================================================
-# Tarifa aplicable
-# ======================================================
 def _resolve_tarifa(
     supabase,
     fecha_iso: str,
@@ -282,10 +158,6 @@ def _resolve_tarifa(
     productoid: Optional[int],
     familiaid: Optional[int],
 ) -> Dict[str, Any]:
-    """
-    Devuelve la mejor tarifa aplicable respetando jerarquía, fechas y prioridad.
-    Si no encuentra ninguna válida, devuelve la Tarifa General (5%).
-    """
     out = {
         "nivel_tarifa": "fallback_general",
         "tarifaid": 5,
@@ -297,10 +169,7 @@ def _resolve_tarifa(
     try:
         reglas = (
             supabase.table("tarifa_regla")
-            .select(
-                "tarifa_reglaid, tarifaid, clienteid, grupoid, productoid, familia_productoid, "
-                "fecha_inicio, fecha_fin, prioridad, habilitada"
-            )
+            .select("*")
             .eq("habilitada", True)
             .execute()
             .data
@@ -313,11 +182,18 @@ def _resolve_tarifa(
     if not reglas:
         return out
 
+    def _regla_producto(r):
+        return (
+            r.get("catalogo_productoid") == productoid
+            or r.get("catalogo_productoid_viejo") == productoid
+            or r.get("productoid") == productoid
+        )
+
     jerarquia = [
-        ("producto+cliente", lambda r: r["clienteid"] == clienteid and r["productoid"] == productoid),
-        ("familia+cliente", lambda r: r["clienteid"] == clienteid and r["familia_productoid"] == familiaid),
-        ("producto+grupo", lambda r: r["grupoid"] == grupoid and r["productoid"] == productoid),
-        ("familia+grupo", lambda r: r["grupoid"] == grupoid and r["familia_productoid"] == familiaid),
+        ("producto+cliente", lambda r: r.get("clienteid") == clienteid and _regla_producto(r)),
+        ("familia+cliente",  lambda r: r.get("clienteid") == clienteid and r.get("familia_productoid") == familiaid),
+        ("producto+grupo",   lambda r: r.get("idgrupo") == grupoid and _regla_producto(r)),
+        ("familia+grupo",    lambda r: r.get("idgrupo") == grupoid and r.get("familia_productoid") == familiaid),
     ]
 
     for nivel, cond in jerarquia:
@@ -355,10 +231,8 @@ def _resolve_tarifa(
 
         if enriched:
             enriched.sort(key=lambda x: (-x["descuento_pct"], x["fecha_inicio"] or "", x["prioridad"]))
-            mejor = enriched[0]
-            return mejor
+            return enriched[0]
 
-    # cliente_tarifa directa
     try:
         cts = (
             supabase.table("cliente_tarifa")
@@ -368,7 +242,12 @@ def _resolve_tarifa(
             .data
             or []
         )
-        cts = [c for c in cts if _is_active_window({"fecha_inicio": c.get("fecha_desde"), "fecha_fin": c.get("fecha_hasta")}, fecha_iso)]
+        cts = [
+            c for c in cts if _is_active_window(
+                {"fecha_inicio": c.get("fecha_desde"), "fecha_fin": c.get("fecha_hasta")},
+                fecha_iso,
+            )
+        ]
         if cts:
             t = (
                 supabase.table("tarifa")
@@ -392,9 +271,6 @@ def _resolve_tarifa(
     return out
 
 
-# ======================================================
-# FUNCIÓN PRINCIPAL
-# ======================================================
 def calcular_precio_linea(
     supabase,
     clienteid: Optional[int] = None,
@@ -427,10 +303,8 @@ def calcular_precio_linea(
 
     ivx = _resolve_impuesto_pct(
         supabase,
-        product_impuestoid=pr_ctx.get("impuestoid"),
         producto_tipoid=pr_ctx.get("producto_tipoid"),
-        producto_tipo_nombre=pr_ctx.get("tipo_producto_nombre"),
-        region_nombre=cli_ctx.get("region_nombre") or "España",
+        ambito=cli_ctx.get("ambito") or "ES",
         fecha_iso=fecha_iso,
     )
     iva_pct = float(ivx.get("iva_pct") or 0.0)
@@ -451,6 +325,6 @@ def calcular_precio_linea(
         "regla_id": tarifa.get("regla_id"),
         "iva_nombre": ivx.get("iva_nombre"),
         "iva_origen": ivx.get("iva_origen"),
-        "region": cli_ctx.get("region_nombre") or "España",
+        "region": cli_ctx.get("ambito") or "ES",
         "region_origen": cli_ctx.get("region_origen"),
     }

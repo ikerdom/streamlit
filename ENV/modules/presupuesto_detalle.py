@@ -1,19 +1,11 @@
-# modules/presupuesto_detalle.py
 import pandas as pd
-from datetime import datetime, date
 import requests
 import streamlit as st
 
-from modules.presupuesto_api import (
-    agregar_linea,
-    listar_lineas,
-    recalcular_lineas as api_recalcular_lineas,
-)
-from modules.presupuesto_api import _base_url
+from modules.presupuesto_api import agregar_linea, listar_lineas, _base_url
 
 
 def _productos_options():
-    """Carga productos vía API de productos (paginado amplio)."""
     try:
         r = requests.get(
             f"{_base_url()}/api/productos",
@@ -21,16 +13,21 @@ def _productos_options():
             timeout=20,
         )
         r.raise_for_status()
-        data = r.json().get("data", [])
-        return data
+        return r.json().get("data", [])
     except Exception as e:
-        st.warning(f"⚠️ No se pudieron cargar productos: {e}")
+        st.warning(f"No se pudieron cargar productos: {e}")
         return []
 
 
-def añadir_linea_presupuesto(presupuestoid: int):
-    """Alta de línea usando la API (pricing en backend)."""
-    st.subheader("➕ Añadir línea al presupuesto")
+def _pick(row: dict, *keys):
+    for k in keys:
+        if row.get(k) is not None:
+            return row.get(k)
+    return None
+
+
+def anadir_linea_presupuesto(presupuestoid: int):
+    st.subheader("Anadir linea al presupuesto")
 
     productos = _productos_options()
     nombres = [p.get("nombre") for p in productos]
@@ -44,87 +41,115 @@ def añadir_linea_presupuesto(presupuestoid: int):
         st.warning("Producto no encontrado.")
         return
 
-    col1, col2 = st.columns(2)
-    with col1:
-        cantidad = st.number_input("Cantidad", min_value=1, step=1, value=1)
-    with col2:
-        descuento_manual = st.number_input("Descuento (%)", min_value=0.0, step=0.5, value=0.0)
+    cantidad = st.number_input("Cantidad", min_value=1.0, step=1.0, value=1.0)
 
-    if st.button("💾 Añadir línea", use_container_width=True):
+    if st.button("Anadir linea", use_container_width=True):
         try:
             payload = {
                 "productoid": int(prod["productoid"]),
                 "cantidad": float(cantidad),
                 "descripcion": prod.get("nombre"),
             }
-            if descuento_manual > 0:
-                payload["descuento_pct"] = float(descuento_manual)
-
             agregar_linea(presupuestoid, payload)
-            st.success(f"✅ Línea añadida: {cantidad} × {prod['nombre']}")
+            st.success(f"Linea anadida: {cantidad} x {prod['nombre']}")
             st.rerun()
         except Exception as e:
-            st.error(f"❌ Error añadiendo línea: {e}")
+            st.error(f"Error anadiendo linea: {e}")
 
 
 def render_presupuesto_detalle(presupuestoid: int, bloqueado: bool = False):
-    """
-    📦 Muestra las líneas del presupuesto usando la API y permite altas si está editable.
-    """
-    st.subheader("📦 Detalle de productos del presupuesto")
+    st.subheader("Detalle de lineas del presupuesto")
 
     try:
         lineas = listar_lineas(presupuestoid)
     except Exception as e:
-        st.error(f"❌ Error cargando líneas del presupuesto: {e}")
+        st.error(f"Error cargando lineas del presupuesto: {e}")
         return
 
     if not lineas:
-        st.info("ℹ️ No hay líneas en este presupuesto todavía.")
+        st.info("No hay lineas en este presupuesto.")
     else:
-        df = pd.DataFrame(lineas)
-        df.rename(
-            columns={
-                "descripcion": "Descripción",
-                "cantidad": "Cantidad",
-                "precio_unitario": "P. Unit (€)",
-                "descuento_pct": "Dto (%)",
-                "iva_pct": "IVA (%)",
-                "importe_base": "Base (€)",
-                "importe_total_linea": "Total línea (€)",
-                "tarifa_aplicada": "Tarifa",
-                "nivel_tarifa": "Jerarquía",
-            },
-            inplace=True,
-        )
-        df["P. Unit (€)"] = df["P. Unit (€)"].map(lambda x: f"{x:,.2f} €" if x is not None else "-")
-        df["Base (€)"] = df["Base (€)"].map(lambda x: f"{x:,.2f} €" if x is not None else "-")
-        df["Total línea (€)"] = df["Total línea (€)"].map(lambda x: f"{x:,.2f} €" if x is not None else "-")
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        rows = []
+        total_base = total_iva = total_total = 0.0
+        por_tarifa = {}
+        por_iva = {}
+        for ln in lineas:
+            base = _pick(ln, "base_linea", "importe_base") or 0.0
+            iva_pct = _pick(ln, "iva_pct") or 0.0
+            iva_importe = _pick(ln, "iva_importe")
+            if iva_importe is None:
+                iva_importe = float(base) * float(iva_pct) / 100.0
+            total_linea = _pick(ln, "total_linea", "importe_total_linea")
+            if total_linea is None:
+                total_linea = float(base) + float(iva_importe)
 
-        total_base = sum([float(r.get("importe_base") or 0) for r in lineas])
-        total_iva = sum([(float(r.get("importe_base") or 0) * float(r.get("iva_pct") or 0) / 100) for r in lineas])
-        total_total = total_base + total_iva
+            total_base += float(base)
+            total_iva += float(iva_importe)
+            total_total += float(total_linea)
+
+            nivel = ln.get("nivel_tarifa") or "-"
+            bucket = por_tarifa.get(nivel, {"base": 0.0, "total": 0.0})
+            bucket["base"] += float(base)
+            bucket["total"] += float(total_linea)
+            por_tarifa[nivel] = bucket
+
+            iva_key = f"{iva_pct:.2f}%"
+            por_iva[iva_key] = por_iva.get(iva_key, 0.0) + float(iva_importe)
+
+            rows.append(
+                {
+                    "Descripcion": ln.get("descripcion"),
+                    "Cantidad": ln.get("cantidad"),
+                    "P. Unit (EUR)": ln.get("precio_unitario"),
+                    "Dto (%)": ln.get("descuento_pct"),
+                    "Base (EUR)": base,
+                    "IVA (%)": iva_pct,
+                    "IVA imp (EUR)": iva_importe,
+                    "Total linea (EUR)": total_linea,
+                    "Tarifa": ln.get("tarifa_aplicada"),
+                    "Nivel tarifa": ln.get("nivel_tarifa"),
+                }
+            )
+
+        df = pd.DataFrame(rows)
+        for col in ["P. Unit (EUR)", "Base (EUR)", "IVA imp (EUR)", "Total linea (EUR)"]:
+            df[col] = df[col].map(lambda x: f"{x:,.2f} EUR" if x is not None else "-")
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
         st.markdown("---")
         c1, c2, c3 = st.columns(3)
-        c1.metric("Base imponible (€)", f"{total_base:,.2f}")
-        c2.metric("IVA / IGIC (€)", f"{total_iva:,.2f}")
-        c3.metric("Total presupuesto (€)", f"{total_total:,.2f}")
+        c1.metric("Base imponible", f"{total_base:,.2f} EUR")
+        c2.metric("IVA/IGIC/IPSI", f"{total_iva:,.2f} EUR")
+        c3.metric("Total documento", f"{total_total:,.2f} EUR")
+
+        st.markdown("---")
+        c4, c5 = st.columns(2)
+        with c4:
+            st.markdown("Resumen por nivel tarifa")
+            if por_tarifa:
+                df_tar = pd.DataFrame(
+                    [
+                        {"Nivel": k, "Base (EUR)": v["base"], "Total (EUR)": v["total"]}
+                        for k, v in por_tarifa.items()
+                    ]
+                )
+                st.dataframe(df_tar, use_container_width=True, hide_index=True)
+            else:
+                st.caption("Sin datos de tarifas.")
+        with c5:
+            st.markdown("IVA por tipo")
+            if por_iva:
+                df_iva = pd.DataFrame(
+                    [{"IVA %": k, "Importe (EUR)": v} for k, v in por_iva.items()]
+                )
+                st.dataframe(df_iva, use_container_width=True, hide_index=True)
+            else:
+                st.caption("Sin datos de IVA.")
 
     st.divider()
 
     if bloqueado:
-        st.info("🔒 Este presupuesto está bloqueado y no permite añadir ni modificar líneas.")
+        st.info("Este presupuesto esta bloqueado y no permite cambios.")
         return
 
-    añadir_linea_presupuesto(presupuestoid)
-
-
-def recalcular_lineas_presupuesto(presupuestoid: int, fecha_calculo: date | None = None):
-    """Recalcula todas las líneas vía API backend."""
-    try:
-        resp = api_recalcular_lineas(presupuestoid, fecha_calculo)
-        st.success(f"✅ Líneas recalculadas ({resp.get('fecha_recalculo')})")
-    except Exception as e:
-        st.error(f"❌ Error al recalcular líneas: {e}")
+    anadir_linea_presupuesto(presupuestoid)

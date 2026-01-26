@@ -159,7 +159,7 @@ class PedidosService:
             ]
 
         return PedidoCatalogos(
-            clientes=to_items(self.repo.catalogo("cliente", "clienteid", "razon_social", order_field="razon_social"), "clienteid", "razon_social"),
+            clientes=to_items(self.repo.catalogo("cliente", "clienteid", "razonsocial", order_field="razonsocial"), "clienteid", "razonsocial"),
             trabajadores=to_items(self.repo.catalogo("trabajador", "trabajadorid", "nombre", order_field="nombre"), "trabajadorid", "nombre"),
             estados=to_items(self.repo.catalogo("pedido_estado", "estado_pedidoid", "nombre", where_enabled=True, order_field=None), "estado_pedidoid", "nombre"),
             tipos=to_items(self.repo.catalogo("pedido_tipo", "tipo_pedidoid", "nombre", where_enabled=True, order_field="nombre"), "tipo_pedidoid", "nombre"),

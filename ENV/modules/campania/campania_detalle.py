@@ -264,14 +264,15 @@ def _fetch_actuaciones_campania(supa, campaniaid):
             """
             crm_actuacionid,
             clienteid,
-            trabajadorid,
-            estado,
-            prioridad,
+            trabajador_creadorid,
+
+
             fecha_accion,
             resultado,
             duracion_segundos,
-            cliente (clienteid, razon_social),
-            trabajador!crm_actuacion_trabajadorid_fkey (trabajadorid, nombre, apellidos)
+            crm_actuacion_estado (estado),
+            cliente (clienteid, razonsocial, nombre),
+            trabajador!crm_actuacion_trabajador_creadorid_fkey (trabajadorid, nombre, apellidos)
             """
         )
         .in_("crm_actuacionid", act_ids)
@@ -285,12 +286,12 @@ def _fetch_actuaciones_campania(supa, campaniaid):
             {
                 "crm_actuacionid": a["crm_actuacionid"],
                 "clienteid": a["clienteid"],
-                "cliente_razon_social": (a.get("cliente") or {}).get("razon_social", ""),
-                "trabajadorid": a["trabajadorid"],
+                "cliente_razon_social": (a.get("cliente") or {}).get("razonsocial") or (a.get("cliente") or {}).get("nombre", ""),
+                "trabajadorid": a.get("trabajador_creadorid"),
                 "trabajador_nombre": (a.get("trabajador") or {}).get("nombre", ""),
                 "trabajador_apellidos": (a.get("trabajador") or {}).get("apellidos", ""),
-                "estado": a["estado"],
-                "prioridad": a["prioridad"],
+                "estado": (a.get("crm_actuacion_estado") or {}).get("estado"),
+
                 "fecha_accion": a["fecha_accion"],
                 "resultado": a.get("resultado"),
                 "duracion_segundos": a.get("duracion_segundos"),

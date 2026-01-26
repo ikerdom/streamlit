@@ -47,7 +47,6 @@ def render(supabase):
             st.error(f"Error cargando campaña: {e}")
 
     # Si está cerrada → bloqueamos edición
-    if campania and campania.get("estado") in ["finalizada", "cancelada"]:
         st.info("Esta campaña está cerrada. Solo puedes consultar detalle / informes.")
         return
 
@@ -175,7 +174,6 @@ def step1_datos_generales(supabase, campania, campaniaid):
             if campaniaid:
                 supabase.table("campania").update(payload).eq("campaniaid", campaniaid).execute()
             else:
-                payload["estado"] = "borrador"
                 res = supabase.table("campania").insert(payload).execute()
                 if res.data:
                     st.session_state["campaniaid"] = res.data[0]["campaniaid"]
@@ -200,7 +198,6 @@ def step1_datos_generales(supabase, campania, campaniaid):
                 "tipo_accion": tipo_accion,
                 "objetivo_total": objetivo_total,
                 "notas": notas.strip() or None,
-                "estado": (campania.get("estado") if campania else "borrador"),
             }
 
             if campaniaid:
@@ -249,7 +246,9 @@ def step2_segmentacion(supabase, campania, campaniaid):
                 col1, col2, col3 = st.columns([6, 3, 1])
 
                 with col1:
-                    st.markdown(f"**👤 {cli.get('razon_social', '(sin nombre)')}**")
+                    st.markdown(
+                        f"**👤 {cli.get('razonsocial') or cli.get('nombre') or '(sin nombre)'}**"
+                    )
 
                 with col2:
                     st.caption(f"ID Cliente: {cli.get('clienteid')}")
@@ -274,8 +273,8 @@ def step2_segmentacion(supabase, campania, campaniaid):
         try:
             res = (
                 supabase.table("cliente")
-                .select("clienteid, razon_social, identificador, trabajadorid")
-                .or_(f"razon_social.ilike.%{texto}%,clienteid.eq.{texto},identificador.ilike.%{texto}%")
+                .select("clienteid, razonsocial, nombre, identificador")
+                .or_(f"razonsocial.ilike.%{texto}%,clienteid.eq.{texto},identificador.ilike.%{texto}%")
                 .limit(50)
                 .execute()
             )
@@ -289,7 +288,9 @@ def step2_segmentacion(supabase, campania, campaniaid):
                 col1, col2 = st.columns([7, 1])
 
                 with col1:
-                    st.write(f"**{cli['razon_social']}** · ID {cli['clienteid']}")
+                    st.write(
+                        f"**{cli.get('razonsocial') or cli.get('nombre','')}** · ID {cli['clienteid']}"
+                    )
 
                 with col2:
                     if st.button("Añadir", key=f"add_cli_{cli['clienteid']}"):
@@ -304,7 +305,7 @@ def step2_segmentacion(supabase, campania, campaniaid):
     st.subheader("🎯 Segmentar por grupo")
 
     try:
-        res_g = supabase.table("grupo").select("grupoid, nombre").order("nombre").execute()
+        res_g = supabase.table("grupo").select("idgrupo, grupo_nombre").order("grupo_nombre").execute()
         grupos = res_g.data or []
     except:
         grupos = []
@@ -312,16 +313,16 @@ def step2_segmentacion(supabase, campania, campaniaid):
     if grupos:
         sel = st.selectbox(
             "Selecciona un grupo",
-            ["-- Selecciona --"] + [g["nombre"] for g in grupos]
+            ["-- Selecciona --"] + [g["grupo_nombre"] for g in grupos]
         )
 
         if sel != "-- Selecciona --":
-            grupo = next(g for g in grupos if g["nombre"] == sel)
+            grupo = next(g for g in grupos if g["grupo_nombre"] == sel)
 
             res_cli = (
                 supabase.table("cliente")
-                .select("clienteid, razon_social, trabajadorid")
-                .eq("grupoid", grupo["grupoid"])
+                .select("clienteid, razonsocial, nombre")
+                .eq("idgrupo", grupo["idgrupo"])
                 .execute()
             )
             clientes_gr = res_cli.data or []
@@ -333,7 +334,9 @@ def step2_segmentacion(supabase, campania, campaniaid):
                     col1, col2 = st.columns([7, 1])
 
                     with col1:
-                        st.write(f"{cli['razon_social']} · ID {cli['clienteid']}")
+                        st.write(
+                            f"{cli.get('razonsocial') or cli.get('nombre','')} · ID {cli['clienteid']}"
+                        )
 
                     with col2:
                         if st.button("Añadir", key=f"add_g_{cli['clienteid']}"):
@@ -418,7 +421,8 @@ def step3_confirmacion(supabase, campania, campaniaid):
         df = pd.DataFrame([
             {
                 "ID": (c.get("cliente") or {}).get("clienteid"),
-                "Cliente": (c.get("cliente") or {}).get("razon_social")
+                "Cliente": (c.get("cliente") or {}).get("razonsocial")
+                or (c.get("cliente") or {}).get("nombre")
             }
             for c in clientes
         ])
@@ -491,7 +495,7 @@ def _fetch_campania_clientes(supa, campaniaid):
     try:
         res = (
             supa.table("campania_cliente")
-            .select("campania_clienteid, clienteid, cliente (clienteid, razon_social, trabajadorid)")
+            .select("campania_clienteid, clienteid, cliente (clienteid, razonsocial, nombre)")
             .eq("campaniaid", campaniaid)
             .execute()
         )
@@ -549,6 +553,19 @@ def _generar_acciones_campania(supa, campania, clientes):
 
     creadas = 0
 
+    estado_id = None
+    try:
+        row = (
+            supa.table("crm_actuacion_estado")
+            .eq("estado", "Pendiente")
+            .single()
+            .execute()
+            .data
+        )
+    except Exception:
+        estado_id = None
+
+
     for idx, c in enumerate(clientes):
         cli = c.get("cliente") or {}
         clienteid = cli.get("clienteid")
@@ -558,7 +575,7 @@ def _generar_acciones_campania(supa, campania, clientes):
         offset = idx % dias
         fecha = fi + timedelta(days=offset)
 
-        trabajadorid = cli.get("trabajadorid") or trab_default
+        trabajadorid = trab_default
         if not trabajadorid:
             continue
 
@@ -566,16 +583,14 @@ def _generar_acciones_campania(supa, campania, clientes):
 
         payload = {
             "clienteid": clienteid,
-            "trabajadorid": trabajadorid,
-            "estado": "Pendiente",
+            "trabajador_creadorid": trabajadorid,
             "titulo": f"Campaña: {campania['nombre']}",
-            "canal": tipo,
             "descripcion": campania.get("descripcion") or "",
             "fecha_accion": slot.isoformat(),
             "fecha_vencimiento": fecha.isoformat(),
-            "prioridad": "Media",
         }
-
+        if estado_id:
+            payload["crm_actuacion_estadoid"] = estado_id
         try:
             res = supa.table("crm_actuacion").insert(payload).execute()
             if not res.data:
@@ -591,8 +606,5 @@ def _generar_acciones_campania(supa, campania, clientes):
 
         except Exception as e:
             st.error(f"Error creando actuación para cliente {clienteid}: {e}")
-
-    if creadas > 0:
-        supa.table("campania").update({"estado": "activa"}).eq("campaniaid", campaniaid).execute()
 
     return creadas

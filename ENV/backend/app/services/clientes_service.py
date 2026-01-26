@@ -5,31 +5,12 @@ from typing import Optional
 from backend.app.schemas.cliente import (
     ClienteListResponse,
     ClienteOut,
-    Label,
-    PresupuestoInfo,
     ClienteDetalle,
     ClienteDireccion,
     ClienteContacto,
-    ClienteBanco,
 )
 from backend.app.repositories.clientes_repo import ClientesRepository
-
-
-# ============================
-# ⚙️ Catálogos (placeholder)
-# 👉 En fase 2 irán a repos reales
-# ============================
-ESTADOS = {
-    1: "Activo",
-    2: "Inactivo",
-    3: "Bloqueado",
-}
-
-GRUPOS = {
-    1: "General",
-    2: "Empresas",
-    3: "Distribuidores",
-}
+from backend.app.schemas.cliente_create import ClienteCreateIn
 
 
 class ClientesService:
@@ -40,6 +21,7 @@ class ClientesService:
         self,
         q: Optional[str],
         tipo: Optional[str],
+        idgrupo: Optional[int],
         page: int,
         page_size: int,
         sort_field: str,
@@ -48,6 +30,7 @@ class ClientesService:
         clientes_raw, total = self.repo.get_clientes(
             q=q,
             tipo=tipo,
+            idgrupo=idgrupo,
             page=page,
             page_size=page_size,
             sort_field=sort_field,
@@ -59,42 +42,34 @@ class ClientesService:
         for c in clientes_raw:
             data = dict(c) if isinstance(c, dict) else c.__dict__
 
-            estadoid = data.get("estadoid")
-            grupoid = data.get("grupoid")
-            trabajadorid = data.get("trabajadorid")
-
             cliente = ClienteOut(
                 clienteid=data.get("clienteid"),
-                razon_social=data.get("razon_social"),
-                identificador=data.get("identificador"),
-
-                estadoid=estadoid,
-                grupoid=grupoid,
-                trabajadorid=trabajadorid,
-                formapagoid=data.get("formapagoid"),
-
-                # 👇 enriquecido
-                estado=Label(
-                    id=estadoid,
-                    label=ESTADOS.get(estadoid),
-                )
-                if estadoid
-                else None,
-
-                grupo=Label(
-                    id=grupoid,
-                    label=GRUPOS.get(grupoid),
-                )
-                if grupoid
-                else None,
-
-                comercial=f"Comercial {trabajadorid}"
-                if trabajadorid
-                else None,
-
-                presupuesto_reciente=self._map_presupuesto(
-                    data.get("presupuesto_reciente")
-                ),
+                codigocuenta=data.get("codigocuenta"),
+                codigoclienteoproveedor=data.get("codigoclienteoproveedor"),
+                clienteoproveedor=data.get("clienteoproveedor"),
+                razonsocial=data.get("razonsocial"),
+                nombre=data.get("nombre"),
+                cifdni=data.get("cifdni"),
+                cif_normalizado=data.get("cif_normalizado"),
+                viapublica=data.get("viapublica"),
+                domicilio=data.get("domicilio"),
+                codigopostal=data.get("codigopostal"),
+                provincia=data.get("provincia"),
+                municipio=data.get("municipio"),
+                telefono=data.get("telefono"),
+                telefono2=data.get("telefono2"),
+                telefono3=data.get("telefono3"),
+                fax=data.get("fax"),
+                iban=data.get("iban"),
+                codigobanco=data.get("codigobanco"),
+                codigoagencia=data.get("codigoagencia"),
+                dc=data.get("dc"),
+                ccc=data.get("ccc"),
+                codigotipoefecto=data.get("codigotipoefecto"),
+                codigocuentaefecto=data.get("codigocuentaefecto"),
+                codigocuentaimpagado=data.get("codigocuentaimpagado"),
+                remesahabitual=data.get("remesahabitual"),
+                idgrupo=data.get("idgrupo"),
             )
 
             clientes.append(cliente)
@@ -117,35 +92,48 @@ class ClientesService:
         cli = raw.get("cliente", {})
         cliente = ClienteOut(
             clienteid=cli.get("clienteid"),
-            razon_social=cli.get("razon_social"),
-            identificador=cli.get("identificador"),
-            estadoid=cli.get("estadoid"),
-            grupoid=cli.get("grupoid"),
-            trabajadorid=cli.get("trabajadorid"),
-            formapagoid=cli.get("formapagoid"),
-            estado=Label(id=cli.get("estadoid"), label=ESTADOS.get(cli.get("estadoid"))),
-            grupo=Label(id=cli.get("grupoid"), label=GRUPOS.get(cli.get("grupoid"))),
+            codigocuenta=cli.get("codigocuenta"),
+            codigoclienteoproveedor=cli.get("codigoclienteoproveedor"),
+            clienteoproveedor=cli.get("clienteoproveedor"),
+            razonsocial=cli.get("razonsocial"),
+            nombre=cli.get("nombre"),
+            cifdni=cli.get("cifdni"),
+            cif_normalizado=cli.get("cif_normalizado"),
+            viapublica=cli.get("viapublica"),
+            domicilio=cli.get("domicilio"),
+            codigopostal=cli.get("codigopostal"),
+            provincia=cli.get("provincia"),
+            municipio=cli.get("municipio"),
+            telefono=cli.get("telefono"),
+            telefono2=cli.get("telefono2"),
+            telefono3=cli.get("telefono3"),
+            fax=cli.get("fax"),
+            iban=cli.get("iban"),
+            codigobanco=cli.get("codigobanco"),
+            codigoagencia=cli.get("codigoagencia"),
+            dc=cli.get("dc"),
+            ccc=cli.get("ccc"),
+            codigotipoefecto=cli.get("codigotipoefecto"),
+            codigocuentaefecto=cli.get("codigocuentaefecto"),
+            codigocuentaimpagado=cli.get("codigocuentaimpagado"),
+            remesahabitual=cli.get("remesahabitual"),
+            idgrupo=cli.get("idgrupo"),
         )
 
         return ClienteDetalle(
             cliente=cliente,
-            direccion_fiscal=ClienteDireccion(**raw["direccion_fiscal"]) if raw.get("direccion_fiscal") else None,
+            direcciones=[ClienteDireccion(**d) for d in raw.get("direcciones", [])],
+            contactos=[ClienteContacto(**c) for c in raw.get("contactos", [])],
             contacto_principal=ClienteContacto(**raw["contacto_principal"]) if raw.get("contacto_principal") else None,
-            banco=ClienteBanco(**raw["banco"]) if raw.get("banco") else None,
         )
 
-    # ============================
-    # 🧠 Helpers internos
-    # ============================
-    def _map_presupuesto(self, pres: Optional[dict]) -> Optional[PresupuestoInfo]:
-        if not pres:
-            return None
-
-        return PresupuestoInfo(
-            estado={
-                1: "Pendiente",
-                2: "Aceptado",
-                3: "Rechazado",
-            }.get(pres.get("estado_presupuestoid")),
-            fecha=pres.get("fecha_presupuesto"),
-        )
+    def actualizar_cliente(self, clienteid: int, body: ClienteCreateIn) -> dict:
+        data = body.dict(exclude_none=True)
+        data.pop("contactos", None)
+        data.pop("direcciones", None)
+        if not data:
+            return {"clienteid": clienteid, "mensaje": "Sin cambios"}
+        ok = self.repo.update_cliente(clienteid, data)
+        if not ok:
+            raise ValueError("No se pudo actualizar el cliente")
+        return {"clienteid": clienteid, "mensaje": "Cliente actualizado"}

@@ -8,11 +8,11 @@ def render_ai_page(launch_dataquerybot=None):
     # 🔍 DEBUG: Mostrar estado del entorno (solo para desarrollo)
     # ============================================================
     openai_key_ok = "Sí" if os.getenv("OPENAI_API_KEY") else "❌ NO"
-    supa_ok = "Sí" if os.getenv("SUPABASE_URL") else "❌ NO"
+    supa_ok = "Sí" if os.getenv("URL_SUPABASE") else "❌ NO"
 
     with st.expander("🔧 Diagnóstico (debug)", expanded=False):
         st.write("**OPENAI_API_KEY cargada:**", openai_key_ok)
-        st.write("**SUPABASE_URL cargada:**", supa_ok)
+        st.write("**URL_SUPABASE cargada:**", supa_ok)
         st.caption("Si algo aparece en rojo, el DataQueryBot no se abrirá correctamente.")
 
     st.markdown("""
@@ -34,8 +34,8 @@ def render_ai_page(launch_dataquerybot=None):
         st.error("❌ Falta la clave OPENAI_API_KEY. Configúrala en el ERP.")
         return
 
-    if not os.getenv("SUPABASE_URL"):
-        st.error("❌ Falta SUPABASE_URL. El ERP no ha enviado la cadena de conexión.")
+    if not os.getenv("URL_SUPABASE"):
+        st.error("❌ Falta URL_SUPABASE. El ERP no ha enviado la cadena de conexión.")
         return
 
     st.success("Todo listo para lanzar el DataQueryBot 🚀")

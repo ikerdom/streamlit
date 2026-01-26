@@ -1,25 +1,15 @@
 # backend/app/schemas/cliente_contacto.py
-from typing import Optional, List
+from typing import Optional
 from pydantic import BaseModel
 
 
 class ClienteContactoIn(BaseModel):
-    nombre: str
-    cargo: Optional[str] = None
-    rol: Optional[str] = None
-
-    email: Optional[List[str]] = None
-    telefono: Optional[List[str]] = None
-
-    direccion: Optional[str] = None
-    ciudad: Optional[str] = None
-    provincia: Optional[str] = None
-    pais: Optional[str] = None
-
-    observaciones: Optional[str] = None
+    tipo: str  # TELEFONO | FAX | EMAIL
+    valor: str
+    principal: bool = False
 
 
 class ClienteContactoOut(ClienteContactoIn):
     cliente_contactoid: int
     clienteid: int
-    es_principal: bool
+    valor_norm: Optional[str] = None

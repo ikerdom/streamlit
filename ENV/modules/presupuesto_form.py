@@ -1,15 +1,23 @@
-import streamlit as st
-from datetime import date
 import requests
+from datetime import date
+
+import streamlit as st
 
 from modules.presupuesto_api import (
-    get_presupuesto,
     actualizar_presupuesto,
+    cliente_basico,
     crear_presupuesto,
     get_catalogos,
-    cliente_basico,
+    get_presupuesto,
 )
 from modules.presupuesto_api import _base_url
+
+
+def _pick(row: dict, *keys, default=None):
+    for k in keys:
+        if row.get(k) not in (None, "", "null"):
+            return row.get(k)
+    return default
 
 
 def _load_direcciones(clienteid: int):
@@ -26,18 +34,20 @@ def _load_direcciones(clienteid: int):
     fiscal = None
 
     for r in rows:
-        if r.get("tipo") == "envio":
-            label = f"{r.get('direccion','(sin dirección)')} · {r.get('cp','')} {r.get('ciudad','')} ({r.get('provincia','')})"
-            envio_labels[label] = r["cliente_direccionid"]
-            envio_by_id[r["cliente_direccionid"]] = r
-        if r.get("tipo") == "fiscal":
+        tipo = (r.get("tipo") or "").lower()
+        dir_id = _pick(r, "clientes_direccionid", "cliente_direccionid")
+        label = f"{_pick(r,'direccion','') or '(sin direccion)'} - {_pick(r,'cp','codigopostal','')} {_pick(r,'ciudad','municipio','')} ({_pick(r,'provincia','')})"
+        if tipo == "envio" and dir_id:
+            envio_labels[label] = dir_id
+            envio_by_id[dir_id] = r
+        if tipo == "fiscal":
             fiscal = r
 
     return envio_labels, envio_by_id, fiscal
 
 
 def _index(d: dict, val):
-    """Índice para selectbox con opción vacía inicial."""
+    """Indice para selectbox con opcion vacia inicial."""
     if not d or val is None:
         return 0
     keys = list(d.keys())
@@ -49,12 +59,12 @@ def _index(d: dict, val):
 
 def render_presupuesto_form(presupuestoid=None, bloqueado=False, on_saved_rerun=True):
     """
-    Formulario de cabecera del presupuesto (consumiendo API FastAPI).
+    Formulario de cabecera del presupuesto (API FastAPI).
     - Si presupuestoid es None, crea; si existe, actualiza.
     """
-    st.subheader("🧾 Datos del presupuesto")
+    st.subheader("Datos del presupuesto")
 
-    # Catálogos
+    # Catalogos
     catalogos = get_catalogos()
     estados = {c["label"]: c["id"] for c in catalogos.get("estados", [])}
     formas_pago = {c["label"]: c["id"] for c in catalogos.get("formas_pago", [])}
@@ -67,13 +77,14 @@ def render_presupuesto_form(presupuestoid=None, bloqueado=False, on_saved_rerun=
         try:
             presupuesto = get_presupuesto(presupuestoid)
         except Exception as e:
-            st.error(f"❌ No se pudo cargar el presupuesto: {e}")
+            st.error(f"No se pudo cargar el presupuesto: {e}")
             return
 
-    # Cliente info
     clienteid = presupuesto.get("clienteid")
     cliente_info = cliente_basico(clienteid) if clienteid else {}
-    direcciones_env_labels, direcciones_env_by_id, direccion_fiscal = _load_direcciones(clienteid) if clienteid else ({}, {}, None)
+    direcciones_env_labels, direcciones_env_by_id, direccion_fiscal = (
+        _load_direcciones(clienteid) if clienteid else ({}, {}, None)
+    )
 
     with st.form(f"form_presupuesto_{presupuestoid or 'new'}"):
         c1, c2 = st.columns(2)
@@ -97,56 +108,57 @@ def render_presupuesto_form(presupuestoid=None, bloqueado=False, on_saved_rerun=
             cliente_info = cliente_basico(clienteid) if clienteid else {}
             direcciones_env_labels, direcciones_env_by_id, direccion_fiscal = _load_direcciones(clienteid)
 
-        with st.expander("🏢 Datos fiscales del cliente", expanded=True):
+        with st.expander("Datos fiscales del cliente", expanded=True):
             col_a, col_b = st.columns(2)
             with col_a:
                 st.text_input(
-                    "Razón social",
-                    value=cliente_info.get("razon_social") or cliente_info.get("nombre_comercial") or "",
+                    "Cliente",
+                    value=_pick(cliente_info, "razonsocial", "razon_social", "nombre") or "",
                     disabled=True,
                 )
             with col_b:
                 st.text_input(
                     "CIF/NIF",
-                    value=cliente_info.get("cif_nif") or cliente_info.get("cif") or "",
+                    value=_pick(cliente_info, "cifdni", "cif", "cif_nif") or "",
                     disabled=True,
                 )
 
             if direccion_fiscal:
-                st.markdown("**Dirección fiscal**")
+                st.markdown("**Direccion fiscal**")
                 st.write(
-                    f"{direccion_fiscal.get('direccion','')}\n\n"
-                    f"{direccion_fiscal.get('cp','')} "
-                    f"{direccion_fiscal.get('ciudad','')} "
-                    f"({direccion_fiscal.get('provincia','')}) "
-                    f"{direccion_fiscal.get('pais','ESPAÑA')}"
+                    f"{_pick(direccion_fiscal,'direccion','')}\n\n"
+                    f"{_pick(direccion_fiscal,'cp','codigopostal','')} "
+                    f"{_pick(direccion_fiscal,'ciudad','municipio','')} "
+                    f"({_pick(direccion_fiscal,'provincia','')}) "
+                    f"{_pick(direccion_fiscal,'pais','ES')}"
                 )
             else:
-                st.info("ℹ️ Este cliente no tiene dirección fiscal definida.")
+                st.info("Este cliente no tiene direccion fiscal definida.")
 
-        with st.expander("🚚 Dirección de envío", expanded=True):
+        with st.expander("Direccion de envio", expanded=True):
             if direcciones_env_labels:
                 direccion_sel = st.selectbox(
-                    "Dirección de envío",
+                    "Direccion de envio",
                     list(direcciones_env_labels.keys()),
                     index=_index(direcciones_env_labels, presupuesto.get("direccion_envioid")),
                     disabled=bloqueado,
                 )
             else:
                 direccion_sel = None
-                st.info("ℹ️ No hay direcciones de envío. Se usará la fiscal.")
+                st.info("No hay direcciones de envio. Se usara la fiscal.")
 
             if direccion_sel:
                 env_id = direcciones_env_labels.get(direccion_sel)
                 env = direcciones_env_by_id.get(env_id, {})
-                st.markdown("**Resumen dirección de envío**")
+                st.markdown("**Resumen direccion de envio**")
                 st.write(
-                    f"{env.get('direccion','')}\n\n"
-                    f"{env.get('cp','')} {env.get('ciudad','')} "
-                    f"({env.get('provincia','')}) {env.get('pais','ESPAÑA')}"
+                    f"{_pick(env,'direccion','')}\n\n"
+                    f"{_pick(env,'cp','codigopostal','')} "
+                    f"{_pick(env,'ciudad','municipio','')} "
+                    f"({_pick(env,'provincia','')}) {_pick(env,'pais','ES')}"
                 )
 
-        numero = st.text_input("Número de presupuesto", presupuesto.get("numero", ""), disabled=bloqueado)
+        numero = st.text_input("Numero de presupuesto", presupuesto.get("numero", ""), disabled=bloqueado)
         referencia = st.text_input("Referencia cliente", presupuesto.get("referencia_cliente", ""), disabled=bloqueado)
 
         c3, c4 = st.columns(2)
@@ -171,6 +183,19 @@ def render_presupuesto_form(presupuestoid=None, bloqueado=False, on_saved_rerun=
                 disabled=bloqueado,
             )
 
+        c7, c8 = st.columns(2)
+        with c7:
+            ambito_impuesto = st.selectbox(
+                "Ambito impuesto",
+                ["ES", "ES-CN", "ES-CE", "ES-ML", "EXT"],
+                index=["ES", "ES-CN", "ES-CE", "ES-ML", "EXT"].index(
+                    presupuesto.get("ambito_impuesto") or "ES"
+                ),
+                disabled=bloqueado,
+            )
+        with c8:
+            st.caption("El ambito define IVA/IGIC/IPSI.")
+
         c5, c6 = st.columns(2)
         with c5:
             contacto_att = st.text_input(
@@ -180,7 +205,7 @@ def render_presupuesto_form(presupuestoid=None, bloqueado=False, on_saved_rerun=
             )
         with c6:
             telefono_contacto = st.text_input(
-                "Teléfono contacto",
+                "Telefono contacto",
                 presupuesto.get("telefono_contacto", ""),
                 disabled=bloqueado,
             )
@@ -212,7 +237,7 @@ def render_presupuesto_form(presupuestoid=None, bloqueado=False, on_saved_rerun=
             disabled=bloqueado,
         )
 
-        guardar = st.form_submit_button("💾 Guardar presupuesto", disabled=bloqueado, use_container_width=True)
+        guardar = st.form_submit_button("Guardar presupuesto", disabled=bloqueado, use_container_width=True)
 
     if guardar:
         try:
@@ -223,6 +248,7 @@ def render_presupuesto_form(presupuestoid=None, bloqueado=False, on_saved_rerun=
                 "referencia_cliente": referencia or None,
                 "fecha_presupuesto": fecha.isoformat(),
                 "fecha_validez": fecha_validez.isoformat(),
+                "ambito_impuesto": ambito_impuesto,
                 "observaciones": observaciones or None,
                 "facturar_individual": facturar,
                 "contacto_att": contacto_att or None,
@@ -236,14 +262,13 @@ def render_presupuesto_form(presupuestoid=None, bloqueado=False, on_saved_rerun=
 
             if presupuestoid:
                 actualizar_presupuesto(presupuestoid, payload)
-                st.toast("✅ Presupuesto actualizado.", icon="✅")
+                st.toast("Presupuesto actualizado.")
             else:
                 creado = crear_presupuesto(payload)
                 presupuestoid = creado.get("presupuestoid")
-                st.toast("✅ Presupuesto creado.", icon="✅")
+                st.toast("Presupuesto creado.")
 
             if on_saved_rerun:
                 st.rerun()
-
         except Exception as e:
-            st.error(f"❌ Error al guardar el presupuesto: {e}")
+            st.error(f"Error al guardar el presupuesto: {e}")

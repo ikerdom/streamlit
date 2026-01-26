@@ -202,7 +202,7 @@ def render(supa):
             if act_ids:
                 acc = (
                     supa.table("crm_actuacion")
-                    .select("estado")
+                    .select("crm_actuacion_estado (estado)")
                     .in_("crm_actuacionid", act_ids)
                     .execute()
                 ).data or []
@@ -212,9 +212,12 @@ def render(supa):
             acc = []
 
         total = len(acc)
-        comp = sum(1 for a in acc if a["estado"] == "Completada")
-        pend = sum(1 for a in acc if a["estado"] == "Pendiente")
-        canc = sum(1 for a in acc if a["estado"] == "Cancelada")
+        def _estado_nombre(row):
+            return (row.get("crm_actuacion_estado") or {}).get("estado", "")
+
+        comp = sum(1 for a in acc if _estado_nombre(a) == "Completada")
+        pend = sum(1 for a in acc if _estado_nombre(a) == "Pendiente")
+        canc = sum(1 for a in acc if _estado_nombre(a) == "Cancelada")
         avance = int((comp / total) * 100) if total else 0
 
         # --------------------------------------------------

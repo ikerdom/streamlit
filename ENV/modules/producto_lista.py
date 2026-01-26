@@ -38,7 +38,7 @@ def _safe(v, d="-"):
 
 def _price(v: Any):
     try:
-        return f"{float(v):.2f} €"
+        return f"{float(v):.2f} EUR"
     except Exception:
         return "-"
 
@@ -49,21 +49,23 @@ def _price(v: Any):
 def render_producto_lista(supabase=None):
     apply_orbe_theme()
 
-    st.header("Gestión de productos")
-    st.caption("Listado, filtros y acceso rápido a la ficha del producto.")
+    st.header("Gestion de productos")
+    st.caption("Listado, filtros y acceso rapido a la ficha del producto.")
 
     st.session_state.setdefault("prod_show_form", False)
-    # Modo catálogo / árbol
-    st.session_state.setdefault("modo_producto", "Catálogo")
+    if st.session_state.get("prod_detalle_id"):
+        st.session_state["prod_show_form"] = False
+    # Modo catalogo / arbol
+    st.session_state.setdefault("modo_producto", "Catalogo")
     st.session_state["modo_producto"] = st.selectbox(
         "Vista de productos",
-        ["Catálogo", "Árbol"],
-        index=0 if st.session_state.get("modo_producto") == "Catálogo" else 1,
+        ["Catalogo", "Arbol"],
+        index=0 if st.session_state.get("modo_producto") == "Catalogo" else 1,
         key="modo_prod_selector",
     )
 
-    # Alta producto (solo catálogo)
-    if st.session_state.get("modo_producto") == "Catálogo":
+    # Alta producto (solo catalogo)
+    if st.session_state.get("modo_producto") == "Catalogo":
         if st.button("Nuevo producto", key="btn_nuevo_prod", width="stretch"):
             st.session_state["prod_show_form"] = True
             st.rerun()
@@ -76,11 +78,11 @@ def render_producto_lista(supabase=None):
         render_producto_form(supa)
         return
 
-    # Vista árbol
-    if st.session_state.get("modo_producto") == "Árbol":
+    # Vista arbol
+    if st.session_state.get("modo_producto") == "Arbol":
         supa = supabase or st.session_state.get("supa")
         if not supa:
-            st.error("Necesito el cliente supabase para mostrar el árbol de productos.")
+            st.error("Necesito el cliente supabase para mostrar el arbol de productos.")
             return
         render_arbol_productos(supa)
         return
@@ -88,19 +90,20 @@ def render_producto_lista(supabase=None):
     # estado UI
     defaults = {
         "prod_page": 1,
-        "prod_sort_field": "nombre",
+        "prod_sort_field": "titulo_automatico",
         "prod_sort_dir": "ASC",
         "prod_view": "Tarjetas",
         "prod_result_count": 0,
-        "prod_table_cols": ["productoid", "nombre", "referencia", "familia", "tipo", "precio"],
+        "prod_table_cols": ["catalogo_productoid", "titulo_automatico", "idproducto", "idproductoreferencia", "familia", "tipo", "categoria", "isbn", "ean", "pvp"],
     }
     for k, v in defaults.items():
         st.session_state.setdefault(k, v)
 
-    # Catálogos
+    # Catalogos
     cats = _api_get("/api/productos/catalogos")
     familias = {c["label"]: c["id"] for c in cats.get("familias", [])}
     tipos = {c["label"]: c["id"] for c in cats.get("tipos", [])}
+    categorias = {c["label"]: c["id"] for c in cats.get("categorias", [])}
 
     # Filtros
     c1, c2 = st.columns([3, 1])
@@ -116,11 +119,12 @@ def render_producto_lista(supabase=None):
         f1, f2 = st.columns(2)
         with f1:
             st.session_state["prod_view"] = st.radio("Vista", ["Tarjetas", "Tabla"], horizontal=True)
-            st.session_state["prod_sort_field"] = st.selectbox("Ordenar por", ["nombre", "titulo", "referencia"])
-            st.session_state["prod_sort_dir"] = st.radio("Dirección", ["ASC", "DESC"], horizontal=True)
+            st.session_state["prod_sort_field"] = st.selectbox("Ordenar por", ["titulo_automatico", "idproducto", "idproductoreferencia", "isbn", "ean", "pvp"])
+            st.session_state["prod_sort_dir"] = st.radio("Direccion", ["ASC", "DESC"], horizontal=True)
         with f2:
             fam_labels = ["Todas"] + list(familias.keys())
             tipo_labels = ["Todos"] + list(tipos.keys())
+            cat_labels = ["Todas"] + list(categorias.keys())
             st.session_state["prod_familia"] = st.selectbox(
                 "Familia",
                 fam_labels,
@@ -129,17 +133,19 @@ def render_producto_lista(supabase=None):
                 else 0,
             )
             st.session_state["prod_tipo"] = st.selectbox("Tipo", tipo_labels)
+            st.session_state["prod_categoria"] = st.selectbox("Categoria", cat_labels)
         if st.session_state["prod_view"] == "Tabla":
             all_cols = [
-                "productoid",
-                "nombre",
-                "titulo",
-                "referencia",
+                "catalogo_productoid",
+                "titulo_automatico",
+                "idproducto",
+                "idproductoreferencia",
                 "familia",
                 "tipo",
-                "impuesto",
-                "estado",
-                "precio",
+                "categoria",
+                "isbn",
+                "ean",
+                "pvp",
             ]
             st.session_state["prod_table_cols"] = st.multiselect(
                 "Columnas a mostrar",
@@ -152,7 +158,7 @@ def render_producto_lista(supabase=None):
                 key="prod_sort_field_table",
             )
             st.session_state["prod_sort_dir"] = st.radio(
-                "Dirección",
+                "Direccion",
                 ["ASC", "DESC"],
                 horizontal=True,
                 key="prod_sort_dir_table",
@@ -174,6 +180,9 @@ def render_producto_lista(supabase=None):
     tipo_sel = st.session_state.get("prod_tipo")
     if tipo_sel and tipo_sel != "Todos":
         params["tipoid"] = tipos.get(tipo_sel)
+    cat_sel = st.session_state.get("prod_categoria")
+    if cat_sel and cat_sel != "Todas":
+        params["categoriaid"] = categorias.get(cat_sel)
 
     payload = _api_get("/api/productos", params=params)
     productos: List[Dict[str, Any]] = payload.get("data", [])
@@ -199,7 +208,7 @@ def render_producto_lista(supabase=None):
     else:
         _render_tabla_productos(productos)
 
-    # paginación
+    # paginacion
     st.markdown("---")
     total_pages = max(1, math.ceil(total / page_size))
     p1, _, p3 = st.columns(3)
@@ -211,20 +220,23 @@ def render_producto_lista(supabase=None):
         if st.button("Siguiente", disabled=page >= total_pages):
             st.session_state["prod_page"] = page + 1
             st.rerun()
-    st.caption(f"Página {page}/{total_pages} · Total: {total}")
+    st.caption(f"Pagina {page}/{total_pages} - Total: {total}")
 
 
 def _render_card_producto(p: dict):
-    nombre = _safe(p.get("nombre")) or _safe(p.get("titulo"))
-    ref = _safe(p.get("referencia"))
+    nombre = _safe(p.get("titulo_automatico"))
+    ref = _safe(p.get("idproductoreferencia"))
     familia = _safe(p.get("familia"))
     tipo = _safe(p.get("tipo"))
-    precio = _price(p.get("precio"))
+    categoria = _safe(p.get("categoria"))
+    precio = _price(p.get("pvp"))
+    isbn = _safe(p.get("isbn"))
+    ean = _safe(p.get("ean"))
     portada = (p.get("portada_url") or "").strip()
     if portada and not portada.startswith("http"):
         portada = ""
 
-    W, H = 105, 145
+    W, H = 80, 110
     portada_html = (
         f"<img src='{portada}' style='width:100%;height:100%;object-fit:cover;display:block;' />"
         if portada
@@ -246,15 +258,19 @@ def _render_card_producto(p: dict):
                     <div style="margin-top:6px;font-size:.9rem;">
                         <b>Familia:</b> {familia}<br>
                         <b>Tipo:</b> {tipo}<br>
+                        <b>Categoria:</b> {categoria}<br>
                         <b>Precio:</b> {precio}
+                    </div>
+                    <div style="margin-top:6px;color:#6b7280;font-size:.85rem;">
+                        ISBN: {isbn} | EAN: {ean}
                     </div>
                 </div>
             </div>
         </div>
         """,
-        height=200,
+        height=170,
     )
-    pid = p.get("productoid")
+    pid = p.get("catalogo_productoid")
     b1, b2 = st.columns(2)
     with b1:
         if st.button("Ficha", key=f"prod_ficha_{pid}", width="stretch"):
@@ -275,11 +291,11 @@ def _render_tabla_productos(productos: list):
         rows.append(row)
     st.dataframe(rows, use_container_width=True, hide_index=True)
 
-    # Selector rÃ¡pido para abrir ficha desde la tabla
+    # Selector rapido para abrir ficha desde la tabla
     opciones = [
-        (f"{p.get('productoid')} - {p.get('nombre')}", p.get("productoid"))
+        (f"{p.get('catalogo_productoid')} - {p.get('titulo_automatico')}", p.get("catalogo_productoid"))
         for p in productos
-        if p.get("productoid") is not None
+        if p.get("catalogo_productoid") is not None
     ]
     if opciones:
         label_map = {label: pid for label, pid in opciones}
@@ -308,29 +324,45 @@ def _render_modal_producto(productoid: int):
 
     p = data.get("producto", data)
 
+    titulo = p.get("titulo_automatico") or "Producto sin titulo"
+    portada = (p.get("portada_url") or "").strip()
+    if portada and not portada.startswith("http"):
+        portada = ""
+
     st.markdown("---")
-    st.subheader(f"Ficha producto {productoid}")
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        st.write(f"**Nombre:** {p.get('nombre') or '-'}")
-        st.write(f"**Título:** {p.get('titulo') or '-'}")
-        st.write(f"**Referencia:** {p.get('referencia') or '-'}")
-        st.write(f"**ISBN / EAN:** {p.get('isbn') or '-'} / {p.get('ean') or '-'}")
-        st.write(f"**Familia / Tipo:** {p.get('familia') or '-'} / {p.get('tipo') or '-'}")
-        st.write(f"**Impuesto / Estado:** {p.get('impuesto') or '-'} / {p.get('estado') or '-'}")
-        st.write(f"**Precio:** {_price(p.get('precio'))}")
-        st.write(f"**Versatilidad:** {p.get('versatilidad') or '-'}")
-        st.write(f"**Publico:** {p.get('publico')}")
-        st.write(f"**Fecha publicación:** {p.get('fecha_publicacion') or '-'}")
-    with c2:
-        portada = p.get("portada_url") or ""
-        if portada and portada.startswith("http"):
-            st.image(portada, use_container_width=True)
-        else:
-            st.info("Sin portada")
-    st.markdown("**Sinopsis / descripción**")
-    st.write(p.get("sinopsis") or "—")
+    st.subheader(titulo)
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Precio", _price(p.get("pvp")))
+    c2.metric("Familia", p.get("familia") or "-")
+    c3.metric("Tipo", p.get("tipo") or "-")
+
+    c4, c5, c6 = st.columns(3)
+    c4.metric("Categoria", p.get("categoria") or "-")
+    c5.metric("Publico", "Si" if p.get("publico") else "No")
+    c6.metric("Publicacion", p.get("fecha_publicacion") or "-")
+
+    st.markdown("### Identificadores")
+    d1, d2, d3 = st.columns(3)
+    d1.write(f"**ID catalogo:** {p.get('catalogo_productoid') or '-'}")
+    d2.write(f"**ID producto:** {p.get('idproducto') or '-'}")
+    d3.write(f"**Ref. producto:** {p.get('idproductoreferencia') or '-'}")
+
+    d4, d5 = st.columns(2)
+    d4.write(f"**ISBN:** {p.get('isbn') or '-'}")
+    d5.write(f"**EAN:** {p.get('ean') or '-'}")
+
+    st.markdown("### Portada")
+    if portada:
+        st.image(portada, use_container_width=True)
+    else:
+        st.info("Sin portada")
+
+    st.markdown("### Descripcion")
+    st.write(p.get("descripcion") or "Sin descripcion.")
 
     if st.button("Cerrar ficha", key=f"cerrar_prod_{productoid}", width="stretch"):
         st.session_state["prod_detalle_id"] = None
         st.rerun()
+
+

@@ -1,53 +1,67 @@
-from typing import Optional, Literal
-from pydantic import BaseModel, Field
-
-
-class ClienteDireccionIn(BaseModel):
-    tipo: Literal["fiscal"] = "fiscal"
-    direccion: Optional[str] = None
-    ciudad: Optional[str] = None
-    provincia: Optional[str] = None
-    pais: Optional[str] = "España"
-    cp: Optional[str] = None
-    telefono: Optional[str] = None
-    email: Optional[str] = None
-    documentacion_impresa: Optional[Literal["valorado", "no_valorado", "factura"]] = None
+from typing import Optional, List
+from pydantic import BaseModel
 
 
 class ClienteContactoIn(BaseModel):
-    nombre: Optional[str] = None
-    email: Optional[str] = None
-    telefono: Optional[str] = None
-    rol: Optional[str] = None
-    es_principal: bool = True
+    tipo: str  # TELEFONO | FAX | EMAIL
+    valor: str
+    principal: bool = False
 
 
-class ClienteBancoIn(BaseModel):
-    iban: Optional[str] = None
-    nombre_banco: Optional[str] = None
-    fecha_baja: Optional[str] = None  # "YYYY-MM-DD"
+class ClienteDireccionIn(BaseModel):
+    direccion_origen_id: Optional[int] = None
+    idtercero: Optional[int] = None
+    razonsocial: Optional[str] = None
+    nombrecomercial: Optional[str] = None
+    direccionfiscal: Optional[str] = None
+    direccion: Optional[str] = None
+    idpais: Optional[str] = None
+    idprovincia: Optional[str] = None
+    idmunicipio: Optional[str] = None
+    codigopostal: Optional[str] = None
+    rci_estado: Optional[str] = None
+    rci_poblacion: Optional[str] = None
+    rci_idterritorio: Optional[str] = None
+    municipio: Optional[str] = None
+    cif: Optional[str] = None
+    referenciacliente: Optional[str] = None
 
 
 class ClienteCreateIn(BaseModel):
-    tipo: Literal["cliente", "potencial"] = "cliente"
+    codigocuenta: Optional[str] = None
+    codigoclienteoproveedor: Optional[str] = None
+    clienteoproveedor: Optional[str] = None
+    razonsocial: Optional[str] = None
+    nombre: Optional[str] = None
+    cifdni: Optional[str] = None
+    cif_normalizado: Optional[str] = None
 
-    razon_social: str = Field(..., min_length=1)
-    identificador: str = Field(..., min_length=1)
+    viapublica: Optional[str] = None
+    domicilio: Optional[str] = None
+    codigopostal: Optional[str] = None
+    provincia: Optional[str] = None
+    municipio: Optional[str] = None
 
-    estadoid: Optional[int] = None
-    categoriaid: Optional[int] = None
-    grupoid: Optional[int] = None
-    formapagoid: Optional[int] = None
-    trabajadorid: Optional[int] = None
-    observaciones: Optional[str] = None
-    tarifaid: Optional[int] = None
+    telefono: Optional[str] = None
+    telefono2: Optional[str] = None
+    telefono3: Optional[str] = None
+    fax: Optional[str] = None
 
-    # igual que tu original (siempre se recalcula luego)
-    perfil_completo: bool = False
+    iban: Optional[str] = None
+    codigobanco: Optional[str] = None
+    codigoagencia: Optional[str] = None
+    dc: Optional[str] = None
+    ccc: Optional[str] = None
 
-    direccion_fiscal: Optional[ClienteDireccionIn] = None
-    contacto_principal: Optional[ClienteContactoIn] = None
-    banco: Optional[ClienteBancoIn] = None
+    codigotipoefecto: Optional[str] = None
+    codigocuentaefecto: Optional[str] = None
+    codigocuentaimpagado: Optional[str] = None
+    remesahabitual: Optional[str] = None
+
+    idgrupo: Optional[int] = None
+
+    contactos: Optional[List[ClienteContactoIn]] = None
+    direcciones: Optional[List[ClienteDireccionIn]] = None
 
 
 class ClienteCreateOut(BaseModel):

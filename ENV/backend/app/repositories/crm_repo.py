@@ -8,22 +8,28 @@ class CrmRepository:
 
     def listar(self, filtros: dict) -> List[dict]:
         q = self.supabase.table("crm_actuacion").select(
-            "crm_actuacionid,titulo,estado,canal,fecha_accion,fecha_vencimiento,prioridad,clienteid,trabajador_asignadoid,trabajadorid"
+            "crm_actuacionid,titulo,descripcion,observaciones,fecha_accion,fecha_vencimiento,"
+            "requiere_seguimiento,fecha_recordatorio,clienteid,trabajador_creadorid,"
+            "trabajador_asignadoid,crm_actuacion_estadoid,crm_actuacion_tipoid,"
+            "crm_actuacion_estado(estado),crm_actuacion_tipo(tipo)"
         )
         if filtros.get("trabajador_asignadoid"):
             q = q.eq("trabajador_asignadoid", filtros["trabajador_asignadoid"])
         if filtros.get("clienteid"):
             q = q.eq("clienteid", filtros["clienteid"])
-        if filtros.get("estado"):
-            q = q.eq("estado", filtros["estado"])
-        if filtros.get("canal"):
-            q = q.eq("canal", filtros["canal"])
+        if filtros.get("crm_actuacion_estadoid"):
+            q = q.eq("crm_actuacion_estadoid", filtros["crm_actuacion_estadoid"])
+        if filtros.get("crm_actuacion_tipoid"):
+            q = q.eq("crm_actuacion_tipoid", filtros["crm_actuacion_tipoid"])
         q = q.order("fecha_vencimiento", desc=False)
         res = q.execute()
         rows = res.data or []
         if filtros.get("buscar"):
             s = filtros["buscar"].lower()
             rows = [r for r in rows if s in (r.get("titulo") or "").lower()]
+        for r in rows:
+            r["estado"] = (r.get("crm_actuacion_estado") or {}).get("estado")
+            r["tipo"] = (r.get("crm_actuacion_tipo") or {}).get("tipo")
         return rows
 
     def crear(self, data: dict) -> dict:

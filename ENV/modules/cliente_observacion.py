@@ -1,15 +1,10 @@
-# =========================================================
-# 🗒️ FORM · Observaciones internas del cliente (UI ONLY)
-# =========================================================
-import streamlit as st
-import requests
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import requests
+import streamlit as st
 
-# =========================================================
-# 🔧 API helpers (UI ONLY)
-# =========================================================
+
 def api_base() -> str:
     try:
         return st.secrets["ORBE_API_URL"]  # type: ignore[attr-defined]
@@ -23,7 +18,7 @@ def api_get(path: str, params: Optional[dict] = None):
         r.raise_for_status()
         return r.json()
     except Exception as e:
-        st.error(f"❌ Error API: {e}")
+        st.error(f"Error API: {e}")
         return []
 
 
@@ -33,131 +28,58 @@ def api_post(path: str, payload: dict):
         r.raise_for_status()
         return r.json()
     except Exception as e:
-        st.error(f"❌ Error API: {e}")
+        st.error(f"Error API: {e}")
         return None
 
 
-# =========================================================
-# 🗒️ Render principal (UI ONLY)
-# =========================================================
+def _format_fecha(raw: Any) -> str:
+    if not raw:
+        return "-"
+    try:
+        dt = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        return dt.strftime("%d/%m/%Y %H:%M")
+    except Exception:
+        return str(raw)
+
+
 def render_observaciones_form(clienteid: int, key_prefix: str = ""):
     clienteid = int(clienteid)
     kp = key_prefix or ""
 
-    # =========================
-    # CABECERA
-    # =========================
-    st.markdown(
-        """
-        <div style="
-            padding:10px;
-            background:#f8fafc;
-            border:1px solid #e5e7eb;
-            border-radius:10px;
-            margin-bottom:10px;">
-            <div style="font-size:1.15rem; font-weight:600; color:#111827;">
-                🗒️ Observaciones internas
-            </div>
-            <div style="font-size:0.9rem; color:#6b7280;">
-                Notas privadas de seguimiento, incidencias o información relevante del cliente.
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    st.subheader("Observaciones internas")
+    st.caption("Notas privadas de seguimiento, incidencias o informacion relevante del cliente.")
 
-    # =========================
-    # 📋 CARGA DE OBSERVACIONES (API)
-    # =========================
     notas: List[Dict[str, Any]] = api_get(
         f"/api/clientes/{clienteid}/observaciones"
     )
 
-    # =========================
-    # 🎨 MAPA DE COLORES (sobrio ERP)
-    # =========================
-    color_map = {
-        "General": "#f8fafc",
-        "Comercial": "#eff6ff",
-        "Administración": "#fffbeb",
-        "Otro": "#faf5ff",
-    }
-
-    border_map = {
-        "General": "#94a3b8",
-        "Comercial": "#3b82f6",
-        "Administración": "#f59e0b",
-        "Otro": "#8b5cf6",
-    }
-
-    # =========================
-    # 🧾 LISTADO DE NOTAS
-    # =========================
     if notas:
         for n in notas:
             tipo = n.get("tipo", "General")
             comentario = n.get("comentario", "")
             usuario = n.get("usuario") or "Desconocido"
+            fecha = _format_fecha(n.get("fecha"))
 
-            fecha_raw = n.get("fecha")
-            fecha = "-"
-            if fecha_raw:
-                # Intento formatear bonito si viene ISO
-                try:
-                    dt = datetime.fromisoformat(str(fecha_raw).replace("Z", "+00:00"))
-                    fecha = dt.strftime("%d/%m/%Y %H:%M")
-                except Exception:
-                    fecha = str(fecha_raw)
-
-            bg = color_map.get(tipo, "#f8fafc")
-            border = border_map.get(tipo, "#94a3b8")
-
-            st.markdown(
-                f"""
-                <div style="
-                    background:{bg};
-                    border:1px solid #e5e7eb;
-                    border-left:5px solid {border};
-                    border-radius:8px;
-                    padding:12px 14px;
-                    margin-bottom:8px;">
-
-                    <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <div style="font-weight:600;color:#111827;">
-                            🗂️ {tipo}
-                        </div>
-                        <div style="font-size:0.8rem;color:#6b7280;">
-                            {fecha}
-                        </div>
-                    </div>
-
-                    <div style="margin-top:6px;color:#111827;font-size:0.95rem;">
-                        {comentario}
-                    </div>
-
-                    <div style="margin-top:6px;text-align:right;
-                                font-size:0.8rem;color:#6b7280;">
-                        ✏️ {usuario}
-                    </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+            with st.container(border=True):
+                c1, c2 = st.columns([3, 1])
+                with c1:
+                    st.write(f"Tipo: {tipo}")
+                with c2:
+                    st.caption(fecha)
+                st.write(comentario)
+                st.caption(f"Usuario: {usuario}")
     else:
-        st.info("📭 No hay observaciones registradas aún.")
+        st.info("No hay observaciones registradas.")
 
-    # =========================
-    # ➕ NUEVA OBSERVACIÓN
-    # =========================
     st.markdown("---")
 
-    with st.expander("➕ Añadir nueva observación"):
+    with st.expander("Agregar nueva observacion"):
         col1, col2 = st.columns(2)
 
         with col1:
             tipo = st.selectbox(
                 "Tipo de nota",
-                ["General", "Comercial", "Administración", "Otro"],
+                ["General", "Comercial", "Administracion", "Otro"],
                 index=0,
                 key=f"{kp}obs_tipo_{clienteid}",
             )
@@ -168,14 +90,14 @@ def render_observaciones_form(clienteid: int, key_prefix: str = ""):
 
         comentario = st.text_area(
             "Comentario",
-            placeholder="Ejemplo: Cliente solicita retrasar entrega una semana…",
+            placeholder="Ejemplo: Cliente solicita retrasar entrega una semana.",
             height=100,
             key=f"{kp}obs_text_{clienteid}",
         )
 
-        if st.button("💾 Guardar observación", width="stretch", key=f"{kp}obs_save_{clienteid}"):
+        if st.button("Guardar observacion", use_container_width=True, key=f"{kp}obs_save_{clienteid}"):
             if not comentario.strip():
-                st.warning("⚠️ Debes escribir un comentario.")
+                st.warning("Debes escribir un comentario.")
                 return
 
             payload = {
@@ -190,5 +112,5 @@ def render_observaciones_form(clienteid: int, key_prefix: str = ""):
             )
 
             if res:
-                st.toast("✅ Observación guardada correctamente.")
+                st.toast("Observacion guardada correctamente.")
                 st.rerun()

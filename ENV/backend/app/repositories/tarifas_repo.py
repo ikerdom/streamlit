@@ -27,14 +27,24 @@ class TarifasRepository:
     def list_reglas(self) -> List[dict]:
         res = (
             self.supabase.table("tarifa_regla")
-            .select(
-                "tarifa_reglaid, tarifaid, clienteid, grupoid, productoid, familia_productoid, "
-                "fecha_inicio, fecha_fin, prioridad, habilitada"
-            )
+            .select("*")
             .order("tarifa_reglaid")
             .execute()
         )
         return res.data or []
+
+    def get_tarifa_regla_tipo_id(self, codigo: str) -> Optional[int]:
+        if not codigo:
+            return None
+        res = (
+            self.supabase.table("tarifa_regla_tipo")
+            .select("tarifa_regla_tipoid")
+            .eq("codigo", codigo)
+            .maybe_single()
+            .execute()
+        )
+        d = res.data or None
+        return d.get("tarifa_regla_tipoid") if d else None
 
     def insert_regla(self, data: dict) -> dict:
         res = self.supabase.table("tarifa_regla").insert(data).execute()
@@ -67,10 +77,10 @@ class TarifasRepository:
     def producto_familia(self, productoid: int) -> Optional[int]:
         res = (
             self.supabase.table("producto")
-            .select("familia_productoid")
-            .eq("productoid", productoid)
+            .select("producto_familiaid")
+            .eq("catalogo_productoid", productoid)
             .maybe_single()
             .execute()
         )
         d = res.data or None
-        return d.get("familia_productoid") if d else None
+        return d.get("producto_familiaid") if d else None

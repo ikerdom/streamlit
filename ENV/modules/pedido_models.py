@@ -130,11 +130,20 @@ def load_trabajadores(_supabase) -> Dict[str, Any]:
     try:
         res = (
             _supabase.table("trabajador")
-            .select("trabajadorid, nombre, apellidos, rol")
+            .select("trabajadorid, nombre, apellidos, trabajador_rol(nombre)")
             .order("nombre")
             .execute()
         )
-        return {f"{r['nombre']} {r['apellidos']} ({r.get('rol','')})": r["trabajadorid"] for r in res.data or []}
+        options = {}
+        for r in res.data or []:
+            rol = ""
+            if isinstance(r.get("trabajador_rol"), dict):
+                rol = r["trabajador_rol"].get("nombre") or ""
+            label = f"{r.get('nombre','')} {r.get('apellidos','')}".strip()
+            if rol:
+                label = f"{label} ({rol})"
+            options[label] = r["trabajadorid"]
+        return options
     except Exception as e:
         st.warning(f"⚠️ No se pudieron cargar trabajadores: {e}")
         return {}
@@ -146,11 +155,15 @@ def load_clientes(_supabase) -> Dict[str, Any]:
     try:
         res = (
             _supabase.table("cliente")
-            .select("clienteid, razon_social")
-            .order("razon_social")
+            .select("clienteid, razonsocial, nombre")
+            .order("razonsocial")
             .execute()
         )
-        return _as_options(res.data, label="razon_social", value="clienteid")
+        return {
+            (r.get("razonsocial") or r.get("nombre") or f"Cliente {r.get('clienteid')}"): r.get("clienteid")
+            for r in res.data or []
+            if r.get("clienteid") is not None
+        }
     except Exception as e:
         st.warning(f"⚠️ No se pudieron cargar clientes: {e}")
         return {}

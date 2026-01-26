@@ -6,13 +6,20 @@ from pydantic import BaseModel
 class CrmAccionBase(BaseModel):
     titulo: str
     descripcion: Optional[str] = None
-    canal: Optional[str] = None
-    estado: Optional[str] = "Pendiente"
+    observaciones: Optional[str] = None
+
+    crm_actuacion_estadoid: Optional[int] = None
+    crm_actuacion_tipoid: Optional[int] = None
+    estado: Optional[str] = None
+    tipo: Optional[str] = None
+
     fecha_accion: Optional[datetime] = None
     fecha_vencimiento: Optional[date] = None
-    prioridad: Optional[str] = None
+    requiere_seguimiento: Optional[bool] = None
+    fecha_recordatorio: Optional[datetime] = None
+
     clienteid: Optional[int] = None
-    trabajadorid: Optional[int] = None
+    trabajador_creadorid: Optional[int] = None
     trabajador_asignadoid: Optional[int] = None
 
 
@@ -23,12 +30,20 @@ class CrmAccionCreate(CrmAccionBase):
 class CrmAccionUpdate(BaseModel):
     titulo: Optional[str] = None
     descripcion: Optional[str] = None
-    canal: Optional[str] = None
+    observaciones: Optional[str] = None
+
+    crm_actuacion_estadoid: Optional[int] = None
+    crm_actuacion_tipoid: Optional[int] = None
     estado: Optional[str] = None
+    tipo: Optional[str] = None
+
     fecha_accion: Optional[datetime] = None
     fecha_vencimiento: Optional[date] = None
-    prioridad: Optional[str] = None
+    requiere_seguimiento: Optional[bool] = None
+    fecha_recordatorio: Optional[datetime] = None
+
     clienteid: Optional[int] = None
+    trabajador_creadorid: Optional[int] = None
     trabajador_asignadoid: Optional[int] = None
 
 

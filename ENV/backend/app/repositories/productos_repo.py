@@ -10,6 +10,7 @@ class ProductosRepository:
         q: Optional[str],
         familiaid: Optional[int],
         tipoid: Optional[int],
+        categoriaid: Optional[int],
         page: int,
         page_size: int,
         sort_field: str,
@@ -24,9 +25,9 @@ class ProductosRepository:
             query = query.or_(
                 ",".join(
                     [
-                        f"nombre.ilike.%{q}%",
-                        f"titulo.ilike.%{q}%",
-                        f"referencia.ilike.%{q}%",
+                        f"titulo_automatico.ilike.%{q}%",
+                        f"idproducto.ilike.%{q}%",
+                        f"idproductoreferencia.ilike.%{q}%",
                         f"isbn.ilike.%{q}%",
                         f"ean.ilike.%{q}%",
                     ]
@@ -34,10 +35,13 @@ class ProductosRepository:
             )
 
         if familiaid:
-            query = query.eq("familia_productoid", familiaid)
+            query = query.eq("producto_familiaid", familiaid)
 
         if tipoid:
             query = query.eq("producto_tipoid", tipoid)
+
+        if categoriaid:
+            query = query.eq("producto_categoriaid", categoriaid)
 
         ascending = sort_dir.upper() == "ASC"
         query = query.order(sort_field, desc=not ascending)
@@ -62,17 +66,16 @@ class ProductosRepository:
             return [r for r in res if r.get(id_field) is not None]
 
         return {
-            "familias": items("producto_familia", "familia_productoid", "nombre", where={"habilitado": True}, order_field="nombre"),
+            "familias": items("producto_familia", "producto_familiaid", "nombre", where={"habilitado": True}, order_field="nombre"),
             "tipos": items("producto_tipo", "producto_tipoid", "nombre", where={"habilitado": True}, order_field="nombre"),
-            "impuestos": items("impuesto", "impuestoid", "nombre", where={"habilitado": True}, order_field="nombre"),
-            "estados": items("estado_producto", "estado_productoid", "nombre", where={"habilitado": True}, order_field="nombre"),
+            "categorias": items("producto_categoria", "producto_categoriaid", "nombre", where={"habilitado": True}, order_field="nombre"),
         }
 
     def get_producto(self, productoid: int) -> Optional[dict]:
         res = (
             self.supabase.table("producto")
             .select("*")
-            .eq("productoid", productoid)
+            .eq("catalogo_productoid", productoid)
             .single()
             .execute()
         )

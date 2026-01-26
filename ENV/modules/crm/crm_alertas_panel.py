@@ -129,8 +129,8 @@ def _alertas_to_df(lista):
 
         rows.append({
             "ID": a.get("crm_actuacionid"),
-            "Cliente": cli.get("razon_social", "—"),
-            "Estado": a.get("estado"),
+            "Cliente": cli.get("razonsocial") or cli.get("nombre", "—"),
+            "Estado": (a.get("crm_actuacion_estado") or {}).get("estado"),
             "Acción": a.get("fecha_accion"),
             "Vencimiento": a.get("fecha_vencimiento"),
             "Título": a.get("titulo") or "—",
@@ -149,9 +149,9 @@ def _alertas_global_to_df(lista):
 
         rows.append({
             "ID": a.get("crm_actuacionid"),
-            "Cliente": cli.get("razon_social", "—"),
+            "Cliente": cli.get("razonsocial") or cli.get("nombre", "—"),
             "Comercial": f"{trab.get('nombre', '')} {trab.get('apellidos', '')}".strip(),
-            "Estado": a.get("estado"),
+            "Estado": (a.get("crm_actuacion_estado") or {}).get("estado"),
             "Acción": a.get("fecha_accion"),
             "Vencimiento": a.get("fecha_vencimiento"),
             "Seguimiento": "Sí" if a.get("requiere_seguimiento") else "No",

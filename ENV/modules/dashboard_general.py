@@ -17,6 +17,7 @@ from modules.dashboard.actuacion_form import render_actuacion_form
 from modules.dashboard.campaign_strip import render_campaign_strip
 from modules.dashboard.incidencias_block import render_incidencias_blocks
 from modules.crm_api import listar as api_listar, actualizar as api_actualizar
+from modules.pipeline_albaranes import can_run_today, run_pipeline, tail_log
 
 
 def _api_base():
@@ -25,6 +26,43 @@ def _api_base():
     except Exception:
         return st.session_state.get("ORBE_API_URL") or "http://127.0.0.1:8000"
 
+
+def _table_exists(supabase, table: str) -> bool:
+    try:
+        supabase.table(table).select("*").limit(1).execute()
+        return True
+    except Exception:
+        return False
+
+
+def _get_crm_estado_id(supabase, estado: str):
+    try:
+        row = (
+            supabase.table("crm_actuacion_estado")
+            .select("crm_actuacion_estadoid, estado")
+            .eq("estado", estado)
+            .single()
+            .execute()
+            .data
+        )
+        return row.get("crm_actuacion_estadoid") if row else None
+    except Exception:
+        return None
+
+
+def _get_incidencia_estado_id(supabase, estado: str):
+    try:
+        row = (
+            supabase.table("incidencia_estado")
+            .select("incidencia_estadoid, estado")
+            .eq("estado", estado)
+            .single()
+            .execute()
+            .data
+        )
+        return row.get("incidencia_estadoid") if row else None
+    except Exception:
+        return None
 
 def _count_api_presupuestos():
     try:
@@ -100,6 +138,35 @@ def _load_activity_api(fecha_inicio_30: date):
     return ped, pres, acts
 
 
+def _load_albaranes_last_days(supabase, days: int = 7) -> pd.DataFrame:
+    if not supabase or not _table_exists(supabase, "albaran"):
+        return pd.DataFrame()
+    start = (date.today() - timedelta(days=days - 1)).isoformat()
+    try:
+        res = (
+            supabase.table("albaran")
+            .select("fecha_albaran")
+            .gte("fecha_albaran", start)
+            .order("fecha_albaran")
+            .execute()
+        )
+        rows = res.data or []
+    except Exception:
+        return pd.DataFrame()
+
+    counts: dict[str, int] = {}
+    for r in rows:
+        raw = r.get("fecha_albaran")
+        if not raw:
+            continue
+        day = str(raw)[:10]
+        counts[day] = counts.get(day, 0) + 1
+
+    days_list = [(date.today() - timedelta(days=i)).isoformat() for i in range(days - 1, -1, -1)]
+    data = {"fecha": days_list, "albaranes": [counts.get(d, 0) for d in days_list]}
+    return pd.DataFrame(data)
+
+
 # ======================================================
 # 🔧 KPI CARD
 # ======================================================
@@ -138,23 +205,6 @@ def _kpi_card(title: str, value: str, subtitle: str = "", color: str = PRIMARY):
 def render_dashboard(supabase):
 
     # ------------------------------------------------------
-    # 🌙 MODO OSCURO
-    # ------------------------------------------------------
-    st.session_state.setdefault("modo_oscuro", False)
-
-    dark_mode = st.toggle("🌙 Modo oscuro", st.session_state["modo_oscuro"])
-    st.session_state["modo_oscuro"] = dark_mode
-
-    if dark_mode:
-        st.markdown(
-            """<style>
-                body, .stApp { background-color: #0f172a !important; color:#f1f5f9 !important; }
-                div[data-testid="stMarkdownContainer"] p { color:#f8fafc !important; }
-            </style>""",
-            unsafe_allow_html=True,
-        )
-
-    # ------------------------------------------------------
     # 🧱 ENCABEZADO
     # ------------------------------------------------------
     st.markdown(
@@ -167,6 +217,28 @@ def render_dashboard(supabase):
         """,
         unsafe_allow_html=True,
     )
+
+    # ------------------------------------------------------
+    # ALBARANES PIPELINE
+    # ------------------------------------------------------
+    can_run, last_run = can_run_today()
+    st.markdown("### Albaranes: refresco diario")
+    if last_run:
+        st.caption(f"Ultima ejecucion: {last_run.isoformat()}")
+    if not can_run:
+        st.info("Ya se ha ejecutado hoy.")
+
+    if st.button("Refrescar albaranes", disabled=not can_run):
+        with st.spinner("Ejecutando refresco..."):
+            ok, msg = run_pipeline()
+        if ok:
+            st.success(msg)
+        else:
+            st.error(msg)
+
+        log_tail = tail_log()
+        if log_tail:
+            st.code(log_tail)
 
     trabajadorid = st.session_state.get("trabajadorid")
     user = st.session_state.get("user_nombre", "Usuario")
@@ -195,27 +267,50 @@ def render_dashboard(supabase):
     c1, c2, c3, c4 = st.columns(4)
 
     with c1:
-        pres_count = _count_api_presupuestos() if supabase is None else contar_registros(supabase, "presupuesto")
+        if supabase is None or not _table_exists(supabase, "presupuesto"):
+            pres_count = _count_api_presupuestos()
+        else:
+            pres_count = contar_registros(supabase, "presupuesto")
         _kpi_card("Presupuestos", pres_count)
     with c2:
-        ped_activos = _count_api_pedidos_activos() if supabase is None else contar_registros(supabase, "pedido", {"estado_pedidoid": 2})
+        if supabase is None or not _table_exists(supabase, "pedido"):
+            ped_activos = _count_api_pedidos_activos()
+        else:
+            ped_activos = contar_registros(supabase, "pedido", {"estado_pedidoid": 2})
         _kpi_card("Pedidos activos", ped_activos, color=SUCCESS)
     with c3:
-        crm_pend = _count_api_crm_pendientes(trabajadorid) if supabase is None else contar_registros(supabase, "crm_actuacion", {"estado": "Pendiente"})
+        if supabase is None or not _table_exists(supabase, "crm_actuacion"):
+            crm_pend = _count_api_crm_pendientes(trabajadorid)
+        else:
+            est_id = _get_crm_estado_id(supabase, "Pendiente")
+            crm_pend = (
+                contar_registros(supabase, "crm_actuacion", {"crm_actuacion_estadoid": est_id})
+                if est_id
+                else "-"
+            )
         _kpi_card("Acciones CRM pendientes", crm_pend, color=WARNING)
     with c4:
-        incs = contar_registros(supabase, "incidencia", {"estado": "Abierta"}) if supabase else "-"
+        if supabase and _table_exists(supabase, "incidencia"):
+            inc_estado_id = _get_incidencia_estado_id(supabase, "Abierta")
+            incs = (
+                contar_registros(supabase, "incidencia", {"incidencia_estadoid": inc_estado_id})
+                if inc_estado_id
+                else "-"
+            )
+        else:
+            incs = "-"
         _kpi_card("Incidencias abiertas", incs, color=DANGER)
 
     st.markdown("---")
 
     # ------------------------------------------------------
-    # 1️⃣ BIS — TIRA DE CAMPAÑAS
+    # ------------------------------------------------------
+    # TIRA DE CAMPA?AS / ALBARANES
     # ------------------------------------------------------
     semana_ini = hoy - timedelta(days=hoy.weekday()) + timedelta(weeks=st.session_state["dash_week_offset"])
     semana_fin = semana_ini + timedelta(days=6)
 
-    if supabase:
+    if supabase and _table_exists(supabase, "campania"):
         render_campaign_strip(
             supabase,
             semana_ini=semana_ini,
@@ -224,7 +319,12 @@ def render_dashboard(supabase):
             ver_todo=ver_todo,
         )
     else:
-        st.info("Campañas: requiere Supabase (no disponible en modo API-only).")
+        st.subheader("Albaranes (ultimos 7 dias)")
+        df_alb = _load_albaranes_last_days(supabase, days=7)
+        if df_alb.empty:
+            st.info("No hay datos de albaranes recientes.")
+        else:
+            st.line_chart(df_alb.set_index("fecha"))
 
     st.markdown("---")
 
@@ -266,9 +366,10 @@ def render_dashboard(supabase):
             q = (
                 supabase.table("crm_actuacion")
                 .select(
-                    "crm_actuacionid, descripcion, canal, estado, fecha_vencimiento, fecha_accion, "
-                    "clienteid, trabajadorid, trabajador_asignadoid, prioridad, titulo, hora_inicio, "
-                    "hora_fin, duracion_segundos, campaniaid"
+                    "crm_actuacionid, descripcion, fecha_vencimiento, fecha_accion, "
+                    "clienteid, trabajador_creadorid, trabajador_asignadoid, titulo, "
+                    "hora_inicio, hora_fin, duracion_segundos, "
+                    "crm_actuacion_estado(estado)"
                 )
                 .gte("fecha_vencimiento", semana_ini.isoformat())
                 .lte("fecha_vencimiento", semana_fin.isoformat())
@@ -279,7 +380,6 @@ def render_dashboard(supabase):
             payload = {
                 "trabajador_asignadoid": trabajadorid,
                 "estado": None,
-                "canal": None,
                 "buscar": None,
             }
             acts_data = api_listar(payload).get("data", [])
@@ -293,7 +393,7 @@ def render_dashboard(supabase):
             def visible(a):
                 return (
                     a.get("trabajador_asignadoid") == trabajadorid
-                    or (a.get("trabajador_asignadoid") is None and a.get("trabajadorid") == trabajadorid)
+                    or (a.get("trabajador_asignadoid") is None and a.get("trabajador_creadorid") == trabajadorid)
                 )
             acts = [a for a in acts_data if visible(a)]
         else:
@@ -312,12 +412,15 @@ def render_dashboard(supabase):
             if ids:
                 rows = (
                     supabase.table("cliente")
-                    .select("clienteid, razon_social")
+                    .select("clienteid, razonsocial, nombre")
                     .in_("clienteid", list(ids))
                     .execute()
                     .data
                 )
-                clientes_map = {r["clienteid"]: r["razon_social"] for r in rows}
+                clientes_map = {
+                    r["clienteid"]: (r.get("razonsocial") or r.get("nombre") or "-")
+                    for r in rows
+                }
         else:
             clientes_map = {}
     except Exception:
@@ -337,7 +440,7 @@ def render_dashboard(supabase):
             total = len(acts)
             por_estado = {}
             for a in acts:
-                est = a.get("estado", "-")
+                est = (a.get("crm_actuacion_estado") or {}).get("estado") or "-"
                 por_estado[est] = por_estado.get(est, 0) + 1
 
             st.write(f"**Total:** {total}")
@@ -369,9 +472,13 @@ def render_dashboard(supabase):
                     if clicked_complete:
                         try:
                             if supabase:
-                                supabase.table("crm_actuacion").update(
-                                    {"estado": "Completada", "fecha_accion": date.today().isoformat()}
-                                ).eq("crm_actuacionid", a["crm_actuacionid"]).execute()
+                                estado_id = _get_crm_estado_id(supabase, "Completada")
+                                payload = {"fecha_accion": date.today().isoformat()}
+                                if estado_id:
+                                    payload["crm_actuacion_estadoid"] = estado_id
+                                supabase.table("crm_actuacion").update(payload).eq(
+                                    "crm_actuacionid", a["crm_actuacionid"]
+                                ).execute()
                             else:
                                 api_actualizar(
                                     a["crm_actuacionid"],
@@ -419,10 +526,32 @@ def render_dashboard(supabase):
     # -------- Gráficas principales --------
     with colA:
         try:
-            if supabase:
-                ped = supabase.table("pedido").select("fecha_pedido").gte("fecha_pedido", fecha_inicio_30.isoformat()).execute().data or []
-                pres = supabase.table("presupuesto").select("fecha_presupuesto").gte("fecha_presupuesto", fecha_inicio_30.isoformat()).execute().data or []
-                acts30 = supabase.table("crm_actuacion").select("fecha_accion, estado").gte("fecha_accion", fecha_inicio_30.isoformat()).eq("estado", "Completada").execute().data or []
+            if supabase and _table_exists(supabase, "pedido") and _table_exists(supabase, "presupuesto"):
+                ped = (
+                    supabase.table("pedido")
+                    .select("fecha_pedido")
+                    .gte("fecha_pedido", fecha_inicio_30.isoformat())
+                    .execute()
+                    .data
+                    or []
+                )
+                pres = (
+                    supabase.table("presupuesto")
+                    .select("fecha_presupuesto")
+                    .gte("fecha_presupuesto", fecha_inicio_30.isoformat())
+                    .execute()
+                    .data
+                    or []
+                )
+                act_estado_id = _get_crm_estado_id(supabase, "Completada")
+                act_query = (
+                    supabase.table("crm_actuacion")
+                    .select("fecha_accion, crm_actuacion_estado(estado)")
+                    .gte("fecha_accion", fecha_inicio_30.isoformat())
+                )
+                if act_estado_id:
+                    act_query = act_query.eq("crm_actuacion_estadoid", act_estado_id)
+                acts30 = act_query.execute().data or []
             else:
                 ped, pres, acts30 = _load_activity_api(fecha_inicio_30)
 
@@ -463,10 +592,10 @@ def render_dashboard(supabase):
         # Gráfico estados CRM
         st.markdown("### 🎯 Estado de acciones CRM (últimos 30 días)")
         try:
-            if supabase:
+            if supabase and _table_exists(supabase, "crm_actuacion"):
                 rows = (
                     supabase.table("crm_actuacion")
-                    .select("estado")
+                    .select("crm_actuacion_estado(estado)")
                     .gte("fecha_accion", fecha_inicio_30.isoformat())
                     .execute()
                     .data
@@ -477,53 +606,64 @@ def render_dashboard(supabase):
             if df_est.empty:
                 st.caption("Sin acciones CRM.")
             else:
+                if "crm_actuacion_estado" in df_est.columns:
+                    df_est["estado"] = df_est["crm_actuacion_estado"].apply(
+                        lambda r: (r or {}).get("estado")
+                    )
                 df_cnt = df_est["estado"].value_counts()
                 st.bar_chart(df_cnt)
         except:
             st.caption("Error cargando datos.")
 
-        # ---- Presupuestos → Pedidos ----
-        st.markdown("### 🔁 Presupuestos convertidos en pedidos")
+        # ---- Presupuestos -> Pedidos ----
+        st.markdown("### Presupuestos convertidos en pedidos")
         try:
-            ped_conv = (
-                supabase.table("pedido")
-                .select("pedidoid, numero, fecha_pedido, presupuesto_origenid, clienteid")
-                .gte("fecha_pedido", fecha_inicio_30.isoformat())
-                .execute()
-                .data
-            )
-
-            ped_conv = [p for p in ped_conv if p.get("presupuesto_origenid")]
-
-            if not ped_conv:
-                st.caption("Sin conversiones.")
+            if not (supabase and _table_exists(supabase, "pedido") and _table_exists(supabase, "presupuesto")):
+                st.info("Sin datos de pedidos/presupuestos en este entorno.")
             else:
-                pres_ids = list({p["presupuesto_origenid"] for p in ped_conv})
-                pres_rows = (
-                    supabase.table("presupuesto")
-                    .select("presupuestoid, numero, clienteid")
-                    .in_("presupuestoid", pres_ids)
+                ped_conv = (
+                    supabase.table("pedido")
+                    .select("pedidoid, numero, fecha_pedido, presupuesto_origenid, clienteid")
+                    .gte("fecha_pedido", fecha_inicio_30.isoformat())
                     .execute()
                     .data
                 )
-                pres_map = {r["presupuestoid"]: r["numero"] for r in pres_rows}
 
-                cli_ids = list({p["clienteid"] for p in ped_conv})
-                cli_rows = (
-                    supabase.table("cliente")
-                    .select("clienteid, razon_social")
-                    .in_("clienteid", cli_ids)
-                    .execute()
-                    .data
-                )
-                cli_map = {c["clienteid"]: c["razon_social"] for c in cli_rows}
+                ped_conv = [p for p in ped_conv if p.get("presupuesto_origenid")]
 
-                for p in ped_conv[:5]:
-                    st.markdown(
-                        f"• **Pedido {p['numero']}** → presupuesto {pres_map.get(p['presupuesto_origenid'],'-')} · {cli_map.get(p['clienteid'],'-')}"
+                if not ped_conv:
+                    st.caption("Sin conversiones.")
+                else:
+                    pres_ids = list({p["presupuesto_origenid"] for p in ped_conv})
+                    pres_rows = (
+                        supabase.table("presupuesto")
+                        .select("presupuestoid, numero, clienteid")
+                        .in_("presupuestoid", pres_ids)
+                        .execute()
+                        .data
                     )
+                    pres_map = {r["presupuestoid"]: r["numero"] for r in pres_rows}
+
+                    cli_ids = list({p["clienteid"] for p in ped_conv})
+                    cli_rows = (
+                        supabase.table("cliente")
+                        .select("clienteid, razonsocial, nombre")
+                        .in_("clienteid", cli_ids)
+                        .execute()
+                        .data
+                    )
+                    cli_map = {
+                        c["clienteid"]: (c.get("razonsocial") or c.get("nombre") or "-")
+                        for c in cli_rows
+                    }
+
+                    for p in ped_conv[:5]:
+                        st.markdown(
+                            f"**Pedido {p['numero']}** -> presupuesto {pres_map.get(p['presupuesto_origenid'],'-')} - {cli_map.get(p['clienteid'],'-')}"
+                        )
 
         except Exception as e:
+            st.error(f"Error en conversiones: {e}")
             st.error(f"Error en conversiones: {e}")
 
     # -------- INCIDENCIAS --------
@@ -532,3 +672,4 @@ def render_dashboard(supabase):
 
     st.markdown("---")
     st.caption("© 2025 EnteNova Gnosis · Orbe — Dashboard comercial y CRM")
+

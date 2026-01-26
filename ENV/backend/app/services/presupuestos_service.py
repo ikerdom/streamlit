@@ -29,20 +29,42 @@ class PresupuestosService:
         q: Optional[str],
         estadoid: Optional[int],
         clienteid: Optional[int],
+        ambito_impuesto: Optional[str],
         page: int,
         page_size: int,
         ordenar_por: str,
     ) -> PresupuestoListResponse:
-        rows, total = self.repo.listar(q, estadoid, clienteid, page, page_size, ordenar_por)
+        rows, total = self.repo.listar(q, estadoid, clienteid, ambito_impuesto, page, page_size, ordenar_por)
+
+        ids = [
+            r.get("presupuestoid") or r.get("presupuesto_id")
+            for r in rows
+            if (r.get("presupuestoid") or r.get("presupuesto_id")) is not None
+        ]
+        totales_map = self.repo.obtener_totales([int(i) for i in ids]) if ids else {}
+        num_lineas_map = {int(pid): self.repo.contar_lineas(int(pid)) for pid in ids}
 
         items: List[PresupuestoListItem] = [
             PresupuestoListItem(
-                presupuestoid=r.get("presupuestoid"),
+                presupuestoid=r.get("presupuestoid") or r.get("presupuesto_id"),
                 numero=r.get("numero"),
                 clienteid=r.get("clienteid"),
-                estado_presupuestoid=r.get("estado_presupuestoid"),
+                cliente=(r.get("cliente") or {}).get("razonsocial")
+                or (r.get("cliente") or {}).get("nombre"),
+                estado_presupuestoid=r.get("estado_presupuestoid") or r.get("presupuesto_estadoid"),
+                estado=(r.get("estado") or {}).get("estado") or (r.get("estado") or {}).get("nombre"),
+                bloquea_edicion=(r.get("estado") or {}).get("bloquea_edicion"),
                 fecha_presupuesto=r.get("fecha_presupuesto"),
                 fecha_validez=r.get("fecha_validez"),
+                ambito_impuesto=r.get("ambito_impuesto"),
+                num_lineas=r.get("num_lineas")
+                or num_lineas_map.get(int(r.get("presupuestoid") or r.get("presupuesto_id") or 0)),
+                base_imponible=r.get("base_imponible")
+                or (totales_map.get(int(r.get("presupuestoid") or r.get("presupuesto_id") or 0)) or {}).get("base_imponible"),
+                iva_total=r.get("iva_total")
+                or (totales_map.get(int(r.get("presupuestoid") or r.get("presupuesto_id") or 0)) or {}).get("iva_total"),
+                total_documento=r.get("total_documento")
+                or (totales_map.get(int(r.get("presupuestoid") or r.get("presupuesto_id") or 0)) or {}).get("total_documento"),
                 total_estimada=r.get("total_estimada"),
                 trabajadorid=r.get("trabajadorid"),
             )
@@ -62,6 +84,14 @@ class PresupuestosService:
         pres = self.repo.obtener(presupuestoid)
         if not pres:
             raise ValueError("Presupuesto no encontrado")
+        totales = self.repo.obtener_totales([presupuestoid]).get(presupuestoid, {})
+        if pres.get("presupuestoid") is None and pres.get("presupuesto_id") is not None:
+            pres["presupuestoid"] = pres.get("presupuesto_id")
+        pres["base_imponible"] = pres.get("base_imponible") or totales.get("base_imponible")
+        pres["iva_total"] = pres.get("iva_total") or totales.get("iva_total")
+        pres["total_documento"] = pres.get("total_documento") or totales.get("total_documento")
+        pres["estado"] = (pres.get("estado") or {}).get("estado") or (pres.get("estado") or {}).get("nombre")
+        pres["bloquea_edicion"] = (pres.get("estado") or {}).get("bloquea_edicion")
         return PresupuestoOut(**pres)
 
     # -----------------------------
@@ -97,8 +127,6 @@ class PresupuestosService:
 
         payload.setdefault("editable", True)
         payload.setdefault("total_estimada", 0.0)
-        payload.setdefault("creado_en", datetime.now().isoformat())
-
         created = self.repo.crear(payload)
         if not created:
             raise RuntimeError("No se pudo crear el presupuesto")
@@ -132,7 +160,37 @@ class PresupuestosService:
     # -----------------------------
     def listar_lineas(self, presupuestoid: int) -> List[PresupuestoLineaOut]:
         raw = self.repo.listar_lineas(presupuestoid)
-        return [PresupuestoLineaOut(**r) for r in raw]
+        out = []
+        for r in raw:
+            base_linea = r.get("base_linea")
+            if base_linea is None:
+                base_linea = r.get("importe_base")
+            iva_pct = r.get("iva_pct") or 0.0
+            iva_importe = r.get("iva_importe")
+            if iva_importe is None and base_linea is not None:
+                iva_importe = float(base_linea) * float(iva_pct) / 100.0
+            total_linea = r.get("total_linea") or r.get("importe_total_linea")
+
+            out.append(
+                PresupuestoLineaOut(
+                    presupuesto_detalleid=r.get("presupuesto_detalleid") or r.get("presupuesto_linea_id"),
+                    productoid=r.get("productoid") or r.get("producto_id"),
+                    descripcion=r.get("descripcion"),
+                    cantidad=r.get("cantidad"),
+                    precio_unitario=r.get("precio_unitario"),
+                    descuento_pct=r.get("descuento_pct"),
+                    iva_pct=r.get("iva_pct"),
+                    importe_base=r.get("importe_base"),
+                    importe_total_linea=r.get("importe_total_linea"),
+                    base_linea=base_linea,
+                    iva_importe=iva_importe,
+                    total_linea=total_linea,
+                    tarifa_aplicada=r.get("tarifa_aplicada"),
+                    nivel_tarifa=r.get("nivel_tarifa"),
+                    iva_origen=r.get("iva_origen"),
+                )
+            )
+        return out
 
     def agregar_linea(self, presupuestoid: int, linea: PresupuestoLineaIn) -> int:
         pres = self.repo.obtener(presupuestoid)
@@ -169,19 +227,18 @@ class PresupuestosService:
             total = round(base * (1 + iva_pct / 100.0), 2)
 
         row = {
-            "presupuestoid": presupuestoid,
-            "productoid": linea.productoid,
+            "presupuesto_id": presupuestoid,
+            "producto_id": linea.productoid,
             "descripcion": linea.descripcion,
             "cantidad": float(linea.cantidad),
             "precio_unitario": unit_bruto,
             "descuento_pct": dto_final,
             "iva_pct": iva_pct,
-            "importe_base": base,
-            "importe_total_linea": total,
-            "fecha_alta": datetime.now().isoformat(),
+            "base_linea": base,
+            "iva_importe": round(base * iva_pct / 100.0, 2),
+            "total_linea": total,
             "tarifa_aplicada": pricing.get("tarifa_aplicada"),
             "nivel_tarifa": pricing.get("nivel_tarifa"),
-            "iva_origen": pricing.get("iva_origen"),
         }
         detalleid = self.repo.insertar_linea(row)
         self._recalcular_total_estimada(presupuestoid)

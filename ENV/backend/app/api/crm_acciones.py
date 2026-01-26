@@ -19,16 +19,16 @@ def get_service(supabase=Depends(get_supabase)) -> CrmService:
 def listar_acciones(
     trabajador_asignadoid: Optional[int] = Query(None),
     clienteid: Optional[int] = Query(None),
-    estado: Optional[str] = Query(None),
-    canal: Optional[str] = Query(None),
+    crm_actuacion_estadoid: Optional[int] = Query(None),
+    crm_actuacion_tipoid: Optional[int] = Query(None),
     buscar: Optional[str] = Query(None),
     service: CrmService = Depends(get_service),
 ):
     filtros = {
         "trabajador_asignadoid": trabajador_asignadoid,
         "clienteid": clienteid,
-        "estado": estado,
-        "canal": canal,
+        "crm_actuacion_estadoid": crm_actuacion_estadoid,
+        "crm_actuacion_tipoid": crm_actuacion_tipoid,
         "buscar": buscar,
     }
     return service.listar(filtros)

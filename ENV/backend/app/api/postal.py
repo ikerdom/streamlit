@@ -17,9 +17,9 @@ def buscar_postal(
     # exacto
     exact = (
         supabase.table("postal_localidad")
-        .select("postallocid,cp,localidad,provincia_nombre_raw")
-        .eq("cp", cp)
-        .order("localidad")
+        .select("postallocid,codigo_postal,municipio,provincia_nombre_raw,region_nombre_raw")
+        .eq("codigo_postal", cp)
+        .order("municipio")
         .execute()
         .data or []
     )
@@ -31,9 +31,9 @@ def buscar_postal(
         if alt_cp:
             alt = (
                 supabase.table("postal_localidad")
-                .select("postallocid,cp,localidad,provincia_nombre_raw")
-                .eq("cp", alt_cp)
-                .order("localidad")
+                .select("postallocid,codigo_postal,municipio,provincia_nombre_raw,region_nombre_raw")
+                .eq("codigo_postal", alt_cp)
+                .order("municipio")
                 .execute()
                 .data or []
             )

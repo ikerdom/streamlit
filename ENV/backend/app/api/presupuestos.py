@@ -1,6 +1,8 @@
 from datetime import date
 from typing import List, Optional
 
+from postgrest.exceptions import APIError
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.app.core.database import get_supabase
@@ -29,34 +31,69 @@ def listar_presupuestos(
     q: Optional[str] = Query(None),
     estadoid: Optional[int] = Query(None),
     clienteid: Optional[int] = Query(None),
+    ambito_impuesto: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(30, ge=1, le=100),
     ordenar_por: str = Query("creado_en", pattern="^(creado_en|fecha_presupuesto)$"),
     service: PresupuestosService = Depends(get_service),
 ):
-    return service.listar(q, estadoid, clienteid, page, page_size, ordenar_por)
+    return service.listar(q, estadoid, clienteid, ambito_impuesto, page, page_size, ordenar_por)
 
 
 @router.get("/catalogos", response_model=PresupuestoCatalogos)
 def catalogos_presupuesto(supabase=Depends(get_supabase)):
-    def items(table: str, id_field: str, label_field: str, order_field: Optional[str] = None, where=None):
-        q = supabase.table(table).select(f"{id_field},{label_field}")
-        if where:
-            for k, v in where.items():
-                q = q.eq(k, v)
-        if order_field:
+    def items_variants(variants: List[tuple], where=None):
+        for table, id_field, label_field, order_field in variants:
             try:
-                q = q.order(order_field)
+                q = supabase.table(table).select(f"{id_field},{label_field}")
+                if where:
+                    for k, v in where.items():
+                        q = q.eq(k, v)
+                if order_field:
+                    try:
+                        q = q.order(order_field)
+                    except Exception:
+                        pass
+                rows = q.execute().data or []
+                return [
+                    {"id": r.get(id_field), "label": r.get(label_field)}
+                    for r in rows
+                    if r.get(id_field) is not None
+                ]
+            except APIError as e:
+                if getattr(e, "args", None) and isinstance(e.args[0], dict):
+                    code = e.args[0].get("code")
+                    if code in ("PGRST205", "PGRST204"):
+                        continue
+                continue
             except Exception:
-                pass
-        rows = q.execute().data or []
-        return [{"id": r[id_field], "label": r[label_field]} for r in rows if r.get(id_field) is not None]
+                continue
+        return []
 
     return PresupuestoCatalogos(
-        estados=items("estado_presupuesto", "estado_presupuestoid", "nombre", order_field="estado_presupuestoid"),
-        clientes=items("cliente", "clienteid", "razon_social", order_field="razon_social"),
-        trabajadores=items("trabajador", "trabajadorid", "nombre", order_field="nombre"),
-        formas_pago=items("forma_pago", "formapagoid", "nombre"),
+        estados=items_variants(
+            [
+                ("presupuesto_estado", "presupuesto_estadoid", "estado", "presupuesto_estadoid"),
+                ("estado_presupuesto", "estado_presupuestoid", "nombre", "estado_presupuestoid"),
+            ]
+        ),
+        clientes=items_variants(
+            [
+                ("cliente", "clienteid", "razonsocial", "razonsocial"),
+                ("cliente", "clienteid", "nombre", "nombre"),
+            ]
+        ),
+        trabajadores=items_variants(
+            [
+                ("trabajador", "trabajadorid", "nombre", "nombre"),
+            ]
+        ),
+        formas_pago=items_variants(
+            [
+                ("forma_pago", "forma_pagoid", "nombre", "nombre"),
+                ("forma_pago", "formapagoid", "nombre", "nombre"),
+            ]
+        ),
     )
 
 
@@ -142,3 +179,4 @@ def cliente_basico(clienteid: int, service: PresupuestosService = Depends(get_se
         raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Error obteniendo cliente: {e}")
+

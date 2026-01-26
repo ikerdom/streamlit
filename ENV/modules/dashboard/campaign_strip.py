@@ -61,7 +61,7 @@ def render_campaign_strip(
         acts_res = (
             supabase.table("crm_actuacion")
             .select(
-                "crm_actuacionid, estado, fecha_accion, trabajadorid, trabajador_asignadoid"
+                "crm_actuacionid, crm_actuacion_estado(estado), fecha_accion, trabajador_creadorid, trabajador_asignadoid"
             )
             .in_("crm_actuacionid", act_ids)
             .gte("fecha_accion", semana_ini.isoformat())
@@ -74,7 +74,7 @@ def render_campaign_strip(
         if not ver_todo and trabajadorid:
             def visible(a):
                 asignado = a.get("trabajador_asignadoid")
-                creador = a.get("trabajadorid")
+                creador = a.get("trabajador_creadorid")
                 return (asignado == trabajadorid) or (asignado is None and creador == trabajadorid)
 
             acts = [a for a in acts if visible(a)]
@@ -99,13 +99,14 @@ def render_campaign_strip(
 
             s["total"] += 1
 
-            if a["estado"] == "Completada":
+            estado = (a.get("crm_actuacion_estado") or {}).get("estado", "")
+            if estado == "Completada":
                 s["completadas"] += 1
             else:
                 s["pendientes"] += 1
 
             # Registrar trabajadores implicados
-            t1 = a.get("trabajadorid")
+            t1 = a.get("trabajador_creadorid")
             t2 = a.get("trabajador_asignadoid")
 
             if t1:

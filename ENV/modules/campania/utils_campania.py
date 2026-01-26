@@ -1,4 +1,5 @@
 import streamlit as st
+from datetime import datetime
 from modules.supa_client import supabase
 
 
@@ -88,8 +89,11 @@ def link_accion_to_campania(campaniaid: int, actuacionid: int):
     resp = supabase.table("campania_actuacion").insert(payload).execute()
     return resp.data
 def bulk_update_acciones_estado(client, accion_ids: list[int], nuevo_estado: str):
+    estado_id = _estado_id(client, nuevo_estado)
+    if not estado_id:
+        return False
     data, error = client.table("crm_actuacion") \
-        .update({"estado": nuevo_estado}) \
+        .update({"crm_actuacion_estadoid": estado_id}) \
         .in_("crm_actuacionid", accion_ids) \
         .execute()
 
@@ -159,21 +163,28 @@ def distribuir_clientes(clientes, comerciales):
 def crear_actuaciones_campania(supa, campaniaid, clientes, comerciales, tipo_accion):
     asign = distribuir_clientes(clientes, comerciales)
     actuaciones_creadas = 0
+    estado_id = _estado_id(supa, "Pendiente")
 
     for trabajadorid, lista_cli in asign.items():
         for clienteid in lista_cli:
             payload = {
-                "trabajadorid": trabajadorid,
+                "trabajador_creadorid": trabajadorid,
                 "clienteid": clienteid,
-                "accion_tipoid": tipo_accion,
-                "estado": "Pendiente",
+                "fecha_accion": datetime.utcnow().isoformat(),
                 "titulo": "Acción campaña",
                 "descripcion": f"Acción asignada por campaña {campaniaid}",
-                "campaniaid": campaniaid
             }
+            if estado_id:
+                payload["crm_actuacion_estadoid"] = estado_id
 
-            supa.table("crm_actuacion").insert(payload).execute()
-            actuaciones_creadas += 1
+            res = supa.table("crm_actuacion").insert(payload).execute()
+            if res.data:
+                act_id = res.data[0].get("crm_actuacionid")
+                if act_id:
+                    supa.table("campania_actuacion").insert(
+                        {"campaniaid": campaniaid, "actuacionid": act_id, "clienteid": clienteid}
+                    ).execute()
+                    actuaciones_creadas += 1
 
     return actuaciones_creadas
 def badge_estado(estado):
@@ -198,7 +209,16 @@ iconos = {
 def icono_estado(est):
     return iconos.get(est, "❔")
 def actuaciones_existentes(supa, campaniaid):
-    data = supa.table("crm_actuacion").select("crm_actuacionid").eq("campaniaid", campaniaid).execute()
+    data = supa.table("campania_actuacion").select("actuacionid").eq("campaniaid", campaniaid).execute()
     if data and data.data:
         return True
     return False
+
+
+def _estado_id(client, nombre: str):
+    cache = st.session_state.get("_crm_estado_map")
+    if cache is None:
+        rows = client.table("crm_actuacion_estado").select("crm_actuacion_estadoid, estado").execute().data or []
+        cache = {r["estado"]: r["crm_actuacion_estadoid"] for r in rows}
+        st.session_state["_crm_estado_map"] = cache
+    return cache.get(nombre)

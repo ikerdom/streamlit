@@ -34,12 +34,10 @@ def generar_agenda_inteligente(
 
     Cada actuación generada:
         clienteid
-        trabajadorid
-        canal
+        trabajador_creadorid
+        tipo_accion
         fecha_accion (datetime)
         fecha_vencimiento (date)
-        estado = Pendiente
-        prioridad = Media
         titulo
         descripcion
     """
@@ -95,12 +93,10 @@ def generar_agenda_inteligente(
 
             actuacion = {
                 "clienteid": cliente["clienteid"],
-                "trabajadorid": trabajadorid,
-                "canal": tipo_accion,
+                "trabajador_creadorid": trabajadorid,
+                "tipo_accion": tipo_accion,
                 "fecha_accion": hora_ptr.isoformat(),
                 "fecha_vencimiento": fecha_actual.isoformat(),
-                "estado": "Pendiente",
-                "prioridad": "Media",
                 "titulo": f"Campaña: {tipo_accion.capitalize()}",
                 "descripcion": "Tarea generada automáticamente",
             }

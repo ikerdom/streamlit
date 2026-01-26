@@ -219,12 +219,13 @@ def _fetch_acciones(supa, campaniaid: int):
         supa.table("crm_actuacion")
         .select("""
             crm_actuacionid,
-            estado,
+            crm_actuacion_estadoid,
             fecha_accion,
             resultado,
-            prioridad,
-            cliente (clienteid, razon_social),
-            trabajador!crm_actuacion_trabajadorid_fkey (trabajadorid, nombre, apellidos)
+            cliente (clienteid, razonsocial, nombre),
+            crm_actuacion_estado (estado),
+            trabajador_creadorid,
+            trabajador!crm_actuacion_trabajador_creadorid_fkey (trabajadorid, nombre, apellidos)
         """)
         .in_("crm_actuacionid", ids)
         .order("fecha_accion")
@@ -240,11 +241,10 @@ def _fetch_acciones(supa, campaniaid: int):
 
         rows.append({
             "crm_actuacionid": a["crm_actuacionid"],
-            "estado": a["estado"],
+            "estado": (a.get("crm_actuacion_estado") or {}).get("estado", ""),
             "fecha_accion": a["fecha_accion"],
             "resultado": a["resultado"],
-            "prioridad": a["prioridad"],
-            "cliente": (a["cliente"]["razon_social"] if a["cliente"] else "—"),
+            "cliente": (a["cliente"]["razonsocial"] if a["cliente"] else "—"),
             "trabajador": trabajador_nombre,
         })
 
@@ -252,12 +252,24 @@ def _fetch_acciones(supa, campaniaid: int):
 
 
 # MASS UPDATES
+def _estado_id(supa, nombre: str):
+    cache = st.session_state.get("_crm_estado_map")
+    if cache is None:
+        rows = supa.table("crm_actuacion_estado").select("crm_actuacion_estadoid, estado").execute().data or []
+        cache = {r["estado"]: r["crm_actuacion_estadoid"] for r in rows}
+        st.session_state["_crm_estado_map"] = cache
+    return cache.get(nombre)
+
+
 def _bulk_update_estado(supa, ids, estado):
-    supa.table("crm_actuacion").update({"estado": estado}).in_("crm_actuacionid", ids).execute()
+    estado_id = _estado_id(supa, estado)
+    if not estado_id:
+        return
+    supa.table("crm_actuacion").update({"crm_actuacion_estadoid": estado_id}).in_("crm_actuacionid", ids).execute()
 
 
 def _bulk_update_comercial(supa, ids, trabajadorid):
-    supa.table("crm_actuacion").update({"trabajadorid": trabajadorid}).in_("crm_actuacionid", ids).execute()
+    supa.table("crm_actuacion").update({"trabajador_creadorid": trabajadorid}).in_("crm_actuacionid", ids).execute()
 
 
 def _bulk_update_fecha(supa, ids, nueva_fecha):

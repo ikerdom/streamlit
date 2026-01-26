@@ -20,6 +20,7 @@ def render_supervision(supa):
     st.divider()
 
     trabajadorid = st.session_state.get("trabajadorid")
+    estado_pendiente_id = _estado_id(supa, "Pendiente")
 
     # ======================================================
     # 0) RESUMEN GLOBAL + USUARIO ACTIVO (nombre o email)
@@ -101,10 +102,10 @@ def render_supervision(supa):
             supa.table("crm_actuacion")
             .select("""
                 crm_actuacionid,
-                trabajadorid,
-                estado,
+                trabajador_creadorid,
+                crm_actuacion_estado (estado),
                 duracion_segundos,
-                trabajador!crm_actuacion_trabajadorid_fkey (trabajadorid, nombre, apellidos)
+                trabajador!crm_actuacion_trabajador_creadorid_fkey (trabajadorid, nombre, apellidos)
             """)
             .execute()
             .data or []
@@ -124,7 +125,7 @@ def render_supervision(supa):
             rows.append({
                 "trabajadorid": t.get("trabajadorid"),
                 "nombre": f"{t.get('nombre','')} {t.get('apellidos','')}".strip(),
-                "estado": a.get("estado", "—"),
+                "estado": (a.get("crm_actuacion_estado") or {}).get("estado", "—"),
                 "duracion_segundos": a.get("duracion_segundos") or 0,
             })
 
@@ -182,7 +183,7 @@ def render_supervision(supa):
 
             st.markdown(f"### {titulo}")
             for a in lista:
-                cli = (a.get("cliente") or {}).get("razon_social", "—")
+                cli = (a.get("cliente") or {}).get("razonsocial") or (a.get("cliente") or {}).get("nombre", "—")
                 venc = a.get("fecha_vencimiento", "—")
 
                 st.markdown(
@@ -196,7 +197,7 @@ def render_supervision(supa):
                     ">
                         <b>{cli}</b><br>
                         Vencimiento: {venc}<br>
-                        Estado: {a.get('estado','—')}
+                        Estado: {(a.get("crm_actuacion_estado") or {}).get("estado", "—")}
                     </div>
                     """,
                     unsafe_allow_html=True,
@@ -216,11 +217,11 @@ def render_supervision(supa):
                 crm_actuacionid,
                 clienteid,
                 fecha_vencimiento,
-                estado,
-                cliente (razon_social)
+                crm_actuacion_estado (estado),
+                cliente (razonsocial, nombre)
             """)
             .lt("fecha_vencimiento", date.today().isoformat())
-            .eq("estado", "Pendiente")
+            .eq("crm_actuacion_estadoid", estado_pendiente_id)
             .execute()
             .data or []
         )
@@ -236,9 +237,19 @@ def render_supervision(supa):
         for v in vencidas:
             rows.append({
                 "ID": v.get("crm_actuacionid"),
-                "Cliente": (v.get("cliente") or {}).get("razon_social", "—"),
+                "Cliente": (v.get("cliente") or {}).get("razonsocial")
+                or (v.get("cliente") or {}).get("nombre", "—"),
                 "Vencimiento": v.get("fecha_vencimiento", "—"),
-                "Estado": v.get("estado", "—"),
+                "Estado": (v.get("crm_actuacion_estado") or {}).get("estado", "—"),
             })
 
         st.dataframe(pd.DataFrame(rows), hide_index=True, use_container_width=True)
+
+
+def _estado_id(supa, nombre: str):
+    cache = st.session_state.get("_crm_estado_map")
+    if cache is None:
+        rows = supa.table("crm_actuacion_estado").select("crm_actuacion_estadoid, estado").execute().data or []
+        cache = {r["estado"]: r["crm_actuacion_estadoid"] for r in rows}
+        st.session_state["_crm_estado_map"] = cache
+    return cache.get(nombre)
